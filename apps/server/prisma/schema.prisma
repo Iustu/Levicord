@@ -1,0 +1,63 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String    @id @default(cuid())
+  googleId    String    @unique
+  email       String    @unique
+  displayName String
+  avatarUrl   String?
+  createdAt   DateTime  @default(now())
+  messages    Message[]
+  dmsSent     DirectMessage[] @relation("sender")
+  dmsReceived DirectMessage[] @relation("receiver")
+}
+
+model Channel {
+  id          String    @id @default(cuid())
+  name        String
+  description String?
+  order       Int       @default(0)
+  messages    Message[]
+}
+
+model Message {
+  id          String    @id @default(cuid())
+  content     String?
+  authorId    String
+  channelId   String
+  attachments Attachment[]
+  createdAt   DateTime  @default(now())
+  author      User      @relation(fields: [authorId], references: [id])
+  channel     Channel   @relation(fields: [channelId], references: [id])
+}
+
+model DirectMessage {
+  id         String   @id @default(cuid())
+  content    String?
+  senderId   String
+  receiverId String
+  attachments Attachment[]
+  createdAt  DateTime @default(now())
+  sender     User     @relation("sender", fields: [senderId], references: [id])
+  receiver   User     @relation("receiver", fields: [receiverId], references: [id])
+}
+
+model Attachment {
+  id        String  @id @default(cuid())
+  url       String
+  type      String  // image | video | file
+  fileName  String
+  fileSize  Int
+  mimeType  String
+  messageId String?
+  dmId      String?
+  message   Message? @relation(fields: [messageId], references: [id])
+  dm        DirectMessage? @relation(fields: [dmId], references: [id])
+}
