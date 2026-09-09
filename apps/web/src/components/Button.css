@@ -1,0 +1,45 @@
+.custom-btn {
+  padding: 12px 24px;
+  font-size: 16px;
+  font-weight: 600;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.custom-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.custom-btn-primary {
+  background-color: #5865F2; /* Discord blurple */
+  color: white;
+}
+
+.custom-btn-primary:hover:not(:disabled) {
+  background-color: #4752C4;
+}
+
+.custom-btn-secondary {
+  background-color: #4F545C;
+  color: white;
+}
+
+.custom-btn-secondary:hover:not(:disabled) {
+  background-color: #686D73;
+}
+
+.custom-btn-danger {
+  background-color: #ED4245;
+  color: white;
+}
+
+.custom-btn-danger:hover:not(:disabled) {
+  background-color: #C93B3E;
+}

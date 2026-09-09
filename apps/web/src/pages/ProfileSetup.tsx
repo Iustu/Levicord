@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Button } from '../components/Button';
+import { Input } from '../components/Input';
 
 export default function ProfileSetup() {
   const [displayName, setDisplayName] = useState('');
@@ -16,21 +18,17 @@ export default function ProfileSetup() {
         <h2>Complete your profile</h2>
         
         <div style={{ marginTop: '20px', marginBottom: '20px' }}>
-          <label style={{ display: 'block', textAlign: 'left', marginBottom: '8px', fontSize: '12px', fontWeight: 'bold', color: '#b9bbbe' }}>DISPLAY NAME</label>
-          <input 
+          <Input 
+            label="DISPLAY NAME"
             type="text" 
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
-            style={{ width: '100%', padding: '10px', backgroundColor: '#202225', color: 'white', border: 'none', borderRadius: '4px', boxSizing: 'border-box' }}
           />
         </div>
 
-        <button 
-          onClick={handleSave}
-          style={{ width: '100%', padding: '10px', fontSize: '16px', backgroundColor: '#5865F2', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-        >
+        <Button onClick={handleSave} style={{ width: '100%' }}>
           Save & Continue
-        </button>
+        </Button>
       </div>
     </div>
   );
