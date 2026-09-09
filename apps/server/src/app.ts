@@ -3,12 +3,17 @@ import fastifyCors from '@fastify/cors';
 import fastifyOauth2 from '@fastify/oauth2';
 import fastifyJwt from '@fastify/jwt';
 import fastifyRateLimit from '@fastify/rate-limit';
+import fastifyHelmet from '@fastify/helmet';
 import authRoutes from './routes/auth.routes';
 
 // Load environment variables
 import 'dotenv/config';
 
 export function buildApp(): FastifyInstance {
+  // Fail fast: never start with a weak JWT secret (DevSecOps — Secure by Default)
+  if (!process.env.JWT_SECRET) {
+    throw new Error('FATAL: JWT_SECRET environment variable is not set. Refusing to start.');
+  }
   const app = Fastify({
     logger: {
       transport: {
@@ -19,6 +24,12 @@ export function buildApp(): FastifyInstance {
         },
       },
     },
+  });
+
+  // Security Headers (Building Secure & Reliable Systems — Defense in Depth)
+  app.register(fastifyHelmet, {
+    // Allow inline scripts needed by Vite in development
+    contentSecurityPolicy: process.env.NODE_ENV === 'production',
   });
 
   // Plugins
@@ -33,7 +44,7 @@ export function buildApp(): FastifyInstance {
   });
 
   app.register(fastifyJwt, {
-    secret: process.env.JWT_SECRET || 'supersecret',
+    secret: process.env.JWT_SECRET!, // guaranteed non-null by the guard above
     cookie: {
       cookieName: 'refreshToken',
       signed: false

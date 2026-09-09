@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import Redis from 'ioredis';
+import { z } from 'zod';
 import { createMessage } from '../services/channel.service';
 
 const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
@@ -38,11 +39,25 @@ export function setupSockets(app: FastifyInstance) {
         app.log.info(`User ${userId} joined channel ${channelId}`);
       });
 
-      socket.on('send_message', async (data: { channelId: string, content: string }) => {
+      socket.on('send_message', async (data: unknown) => {
+        // Validate incoming data with Zod (Building Secure Systems — Defense in Depth)
+        const messageSchema = z.object({
+          channelId: z.string().cuid({ message: 'Invalid channel ID' }),
+          content: z.string()
+            .min(1, 'Message cannot be empty')
+            .max(2000, 'Message exceeds maximum length of 2000 characters')
+            .trim(),
+        });
+
+        const result = messageSchema.safeParse(data);
+        if (!result.success) {
+          socket.emit('error', { message: result.error.issues[0].message });
+          return;
+        }
+
         try {
-          const message = await createMessage(data.content, userId, data.channelId);
-          // Broadcast to everyone in the room
-          app.io.to(data.channelId).emit('new_message', message);
+          const message = await createMessage(result.data.content, userId, result.data.channelId);
+          app.io.to(result.data.channelId).emit('new_message', message);
         } catch (error) {
           app.log.error(error);
           socket.emit('error', { message: 'Failed to send message' });

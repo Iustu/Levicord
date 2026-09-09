@@ -10,6 +10,7 @@
   "dependencies": {
     "@discord-clone/shared": "workspace:*",
     "@fastify/cors": "^8.4.0",
+    "@fastify/helmet": "^13.1.1",
     "@fastify/jwt": "^7.2.2",
     "@fastify/oauth2": "^7.5.0",
     "@fastify/rate-limit": "^11.2.0",
@@ -19,7 +20,7 @@
     "fastify-socket.io": "^5.1.0",
     "ioredis": "^6.0.0",
     "socket.io": "^4.8.3",
-    "zod": "^3.22.4"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^20.8.7",

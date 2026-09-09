@@ -16,13 +16,21 @@ export default async function channelRoutes(fastify: FastifyInstance) {
     return channels;
   });
 
-  fastify.post<{ Body: { name: string; description?: string } }>('/', async (request, reply) => {
+  const createChannelSchema = {
+    body: {
+      type: 'object',
+      required: ['name'],
+      properties: {
+        name: { type: 'string', minLength: 2, maxLength: 32, pattern: '^[a-z0-9-]+$' },
+        description: { type: 'string', maxLength: 200 },
+      },
+    },
+  };
+
+  fastify.post<{ Body: { name: string; description?: string } }>('/', { schema: createChannelSchema }, async (request, reply) => {
     const { name, description } = request.body;
-    if (!name) {
-      return reply.code(400).send({ error: 'Channel name is required' });
-    }
     const channel = await createChannel(name, description);
-    return channel;
+    return reply.code(201).send(channel);
   });
 
   fastify.get<{ Params: { id: string }, Querystring: { cursor?: string } }>('/:id/messages', async (request, reply) => {
