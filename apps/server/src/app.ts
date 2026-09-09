@@ -54,8 +54,18 @@ export function buildApp(): FastifyInstance {
     scope: ['profile', 'email']
   });
 
+  // Socket.io
+  app.register(require('fastify-socket.io'), {
+    cors: {
+      origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+      methods: ["GET", "POST"],
+      credentials: true
+    }
+  });
+
   // Routes
   app.register(authRoutes, { prefix: '/api/auth' });
+  app.register(require('./routes/channel.routes').default, { prefix: '/api/channels' });
 
   app.get('/', async () => {
     return { status: 'ok' };

@@ -3,11 +3,7 @@ import Login from './pages/Login';
 import ProfileSetup from './pages/ProfileSetup';
 import { useAuth } from './hooks/useAuth';
 
-const MainApp = () => (
-  <div style={{ color: 'white', padding: '20px' }}>
-    Main Application View
-  </div>
-);
+import MainApp from './pages/MainApp';
 
 const AuthCallback = () => {
   useAuth(); // The hook handles extracting token and redirecting
