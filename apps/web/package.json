@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@discord-clone/shared": "workspace:^",
     "lucide-react": "^1.43.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

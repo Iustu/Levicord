@@ -2,6 +2,11 @@ generator client {
   provider = "prisma-client-js"
 }
 
+enum UserRole {
+  USER
+  ADMIN
+}
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
@@ -13,6 +18,7 @@ model User {
   email       String    @unique
   displayName String
   avatarUrl   String?
+  role        UserRole  @default(USER)
   createdAt   DateTime  @default(now())
   messages    Message[]
   dmsSent     DirectMessage[] @relation("sender")
@@ -36,6 +42,8 @@ model Message {
   createdAt   DateTime  @default(now())
   author      User      @relation(fields: [authorId], references: [id])
   channel     Channel   @relation(fields: [channelId], references: [id])
+
+  @@index([channelId, createdAt, id])
 }
 
 model DirectMessage {

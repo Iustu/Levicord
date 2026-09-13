@@ -80,6 +80,23 @@
   color: #8e9297;
 }
 
+.channel-item:focus-visible {
+  outline: 2px solid #7289da;
+  outline-offset: 1px;
+}
+
+@media (max-width: 700px) {
+  .sidebar {
+    width: 180px;
+  }
+
+  .chat-header,
+  .chat-input-wrapper {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+}
+
 .channel-item:hover {
   background-color: rgba(79,84,92,0.16);
   color: #dcddde;
@@ -88,6 +105,28 @@
 .channel-item.active {
   background-color: rgba(79,84,92,0.32);
   color: #ffffff;
+}
+
+.channel-item span {
+  flex: 1;
+}
+
+.channel-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.channel-item:hover .channel-edit-btn,
+.channel-item.active .channel-edit-btn,
+.channel-edit-btn:focus-visible {
+  opacity: 0.8;
 }
 
 .channel-icon {
@@ -167,6 +206,8 @@
 }
 
 .message-item {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 54px;
   display: flex;
   padding: 2px 16px;
   margin-top: 17px;

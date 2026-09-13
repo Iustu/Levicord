@@ -1,18 +1,33 @@
 import Fastify, { FastifyInstance } from 'fastify';
 import fastifyCors from '@fastify/cors';
+import fastifyCookie from '@fastify/cookie';
 import fastifyOauth2 from '@fastify/oauth2';
 import fastifyJwt from '@fastify/jwt';
 import fastifyRateLimit from '@fastify/rate-limit';
 import fastifyHelmet from '@fastify/helmet';
 import authRoutes from './routes/auth.routes';
+import channelRoutes from './routes/channel.routes';
+import { prisma } from './prisma';
+import { redis } from './socket';
 
 // Load environment variables
 import 'dotenv/config';
 
 export function buildApp(): FastifyInstance {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+  const callbackUrl = process.env.OAUTH_CALLBACK_URL || 'http://localhost:3000/api/auth/google/callback';
+
   // Fail fast: never start with a weak JWT secret (DevSecOps — Secure by Default)
   if (!process.env.JWT_SECRET) {
     throw new Error('FATAL: JWT_SECRET environment variable is not set. Refusing to start.');
+  }
+  if (isProduction && (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET)) {
+    throw new Error('FATAL: Google OAuth credentials are required in production.');
+  }
+  const parsedFrontendUrl = new URL(frontendUrl);
+  if (isProduction && parsedFrontendUrl.protocol !== 'https:') {
+    throw new Error('FATAL: FRONTEND_URL must use HTTPS in production.');
   }
   const app = Fastify({
     logger: {
@@ -34,9 +49,11 @@ export function buildApp(): FastifyInstance {
 
   // Plugins
   app.register(fastifyCors, {
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    origin: parsedFrontendUrl.origin,
     credentials: true,
   });
+
+  app.register(fastifyCookie);
 
   app.register(fastifyRateLimit, {
     max: 100, // max 100 requests per time window
@@ -46,7 +63,7 @@ export function buildApp(): FastifyInstance {
   app.register(fastifyJwt, {
     secret: process.env.JWT_SECRET!, // guaranteed non-null by the guard above
     cookie: {
-      cookieName: 'refreshToken',
+      cookieName: 'accessToken',
       signed: false
     }
   });
@@ -55,20 +72,20 @@ export function buildApp(): FastifyInstance {
     name: 'googleOAuth2',
     credentials: {
       client: {
-        id: process.env.GOOGLE_CLIENT_ID || '',
-        secret: process.env.GOOGLE_CLIENT_SECRET || ''
+        id: process.env.GOOGLE_CLIENT_ID || 'development-client-id',
+        secret: process.env.GOOGLE_CLIENT_SECRET || 'development-client-secret'
       },
       auth: fastifyOauth2.GOOGLE_CONFIGURATION
     },
     startRedirectPath: '/api/auth/google',
-    callbackUri: 'http://localhost:3000/api/auth/google/callback',
+    callbackUri: callbackUrl,
     scope: ['profile', 'email']
   });
 
   // Socket.io
   app.register(require('fastify-socket.io'), {
     cors: {
-      origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+      origin: parsedFrontendUrl.origin,
       methods: ["GET", "POST"],
       credentials: true
     }
@@ -76,9 +93,29 @@ export function buildApp(): FastifyInstance {
 
   // Routes
   app.register(authRoutes, { prefix: '/api/auth' });
-  app.register(require('./routes/channel.routes').default, { prefix: '/api/channels' });
+  app.register(channelRoutes, { prefix: '/api/channels' });
 
-  app.get('/', async () => {
+  app.get('/livez', async () => {
+    return { status: 'ok' };
+  });
+
+  app.get('/readyz', async (_request, reply) => {
+    try {
+      await Promise.all([
+        prisma.$queryRaw`SELECT 1`,
+        redis.ping(),
+      ]);
+      return { status: 'ready' };
+    } catch (error) {
+      app.log.error(error, 'Readiness check failed');
+      return reply.code(503).send({ status: 'not_ready' });
+    }
+  });
+
+  app.get('/', async () => ({ status: 'ok' }));
+
+  app.post('/api/auth/logout', async (_request, reply) => {
+    reply.clearCookie('accessToken', { path: '/' });
     return { status: 'ok' };
   });
 

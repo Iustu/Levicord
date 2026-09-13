@@ -225,9 +225,9 @@ model Attachment {
 - [ ] JWT + refresh tokens
 
 ### Sprint 2 — Canais de Texto (3–4 dias)
-- [ ] CRUD de canais (admin cria/edita)
+- [x] CRUD de canais (admin cria/edita)
 - [ ] Chat em tempo real via Socket.io (rooms por canal)
-- [ ] Histórico de mensagens (paginação infinita)
+- [x] Histórico de mensagens (paginação infinita)
 - [ ] Presença de usuários (online/offline/ausente)
 
 ### Sprint 3 — Mensagens Privadas (2–3 dias)

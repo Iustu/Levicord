@@ -1,17 +1,38 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import './CreateChannelModal.css';
 
 interface CreateChannelModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (name: string, description: string) => Promise<void>;
+  initialName?: string;
+  initialDescription?: string;
+  title?: string;
+  submitLabel?: string;
 }
 
-export function CreateChannelModal({ isOpen, onClose, onSubmit }: CreateChannelModalProps) {
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
+export function CreateChannelModal({ isOpen, onClose, onSubmit, initialName = '', initialDescription = '', title = 'Criar Canal de Texto', submitLabel = 'Criar Canal' }: CreateChannelModalProps) {
+  const [name, setName] = useState(initialName);
+  const [description, setDescription] = useState(initialDescription);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setName(initialName);
+      setDescription(initialDescription);
+      setError('');
+    }
+  }, [isOpen, initialName, initialDescription]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   // Only allow lowercase letters, numbers, and hyphens (matching server schema)
   const sanitizeName = (val: string) =>
@@ -41,14 +62,14 @@ export function CreateChannelModal({ isOpen, onClose, onSubmit }: CreateChannelM
 
   return (
     // Backdrop — clicking outside closes the modal (Don't Make Me Think — familiar pattern)
-    <div className="modal-backdrop" onClick={onClose} role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div className="modal-backdrop" onClick={onClose} role="dialog" aria-modal="true" aria-labelledby="modal-title" aria-describedby="modal-description">
       <div className="modal-box" onClick={(e) => e.stopPropagation()}>
-        <h2 id="modal-title" className="modal-title">Criar Canal de Texto</h2>
-        <p className="modal-subtitle">Canais são os espaços onde acontecem as conversas.</p>
+        <h2 id="modal-title" className="modal-title">{title}</h2>
+        <p id="modal-description" className="modal-subtitle">Canais são os espaços onde acontecem as conversas.</p>
 
         <form onSubmit={handleSubmit} className="modal-form">
           <div className="modal-field">
-            <label className="modal-label">NOME DO CANAL</label>
+            <label className="modal-label" htmlFor="channel-name">NOME DO CANAL</label>
             <div className="input-prefix-wrapper">
               <span className="input-prefix">#</span>
               <input
@@ -85,7 +106,7 @@ export function CreateChannelModal({ isOpen, onClose, onSubmit }: CreateChannelM
               Cancelar
             </button>
             <button type="submit" className="btn-create" disabled={!name || isLoading}>
-              {isLoading ? 'Criando...' : 'Criar Canal'}
+              {isLoading ? 'Salvando...' : submitLabel}
             </button>
           </div>
         </form>

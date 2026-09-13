@@ -1,40 +1,87 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:16
     container_name: discord_postgres
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
       POSTGRES_DB: discord
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d discord"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7
     container_name: discord_redis
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   minio:
-    image: minio/minio
+    image: quay.io/minio/minio:latest
     container_name: discord_minio
     environment:
       MINIO_ROOT_USER: admin
-      MINIO_ROOT_PASSWORD: password
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-password}
     command: server /data --console-address ":9001"
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
     volumes:
       - minio_data:/data
+    restart: unless-stopped
+
+  server:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    container_name: discord_server
+    environment:
+      DATABASE_URL: postgresql://postgres:password@postgres:5432/discord?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: local-development-secret-change-in-production
+      FRONTEND_URL: https://levicord.uk
+      OAUTH_CALLBACK_URL: https://levicord.uk/api/auth/google/callback
+      NODE_ENV: development
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      ADMIN_EMAILS: ${ADMIN_EMAILS}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3000:3000"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_API_URL: https://levicord.uk
+    container_name: discord_web
+    environment:
+      VITE_API_URL: https://levicord.uk
+    ports:
+      - "127.0.0.1:5173:80"
+    depends_on:
+      - server
     restart: unless-stopped
 
   cloudflared:

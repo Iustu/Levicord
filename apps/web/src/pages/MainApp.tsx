@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Hash, Send, Plus, Loader2 } from 'lucide-react';
+import { Hash, Send, Plus, Loader2, Pencil } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useChatStore } from '../stores/useChatStore';
 import { useSocket } from '../hooks/useSocket';
@@ -10,25 +10,35 @@ import type { Channel, Message } from '../stores/useChatStore';
 import './MainApp.css';
 
 export default function MainApp() {
-  const { token, logout } = useAuth();
+  const { token, isLoading: isAuthLoading, logout } = useAuth();
   const navigate = useNavigate();
-  const { channels, activeChannelId, messages, setChannels, setActiveChannelId, setMessages } = useChatStore();
+  const { channels, activeChannelId, messages, setChannels, setActiveChannelId, setMessages, prependMessages } = useChatStore();
   const { joinChannel, sendMessage } = useSocket();
 
   const [inputText, setInputText] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [channelsError, setChannelsError] = useState<string | null>(null);
+  const [channelsRetryKey, setChannelsRetryKey] = useState(0);
+  const messagesListRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const preserveScrollRef = useRef(false);
+  const shouldAutoScrollRef = useRef(true);
+  const olderMessagesControllerRef = useRef<AbortController | null>(null);
 
   // Auth protection
   useEffect(() => {
-    if (!token) navigate('/login');
-  }, [token, navigate]);
+    if (!isAuthLoading && !token) navigate('/login');
+  }, [isAuthLoading, token, navigate]);
 
   // Fetch initial channels
   useEffect(() => {
     if (!token) return;
+    setChannelsError(null);
     apiFetch<Channel[]>('/api/channels', token)
       .then((data) => {
         setChannels(data);
@@ -36,26 +46,91 @@ export default function MainApp() {
           setActiveChannelId(data[0].id);
         }
       })
-      .catch((err) => console.error('Failed to fetch channels:', err));
-  }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
+      .catch(() => setChannelsError('Não foi possível carregar os canais.'));
+  }, [token, channelsRetryKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch messages when active channel changes and join socket room
   useEffect(() => {
     if (!token || !activeChannelId) return;
 
+    let cancelled = false;
+
     joinChannel(activeChannelId);
     setIsLoadingMessages(true);
     setFetchError(null);
 
-    apiFetch<Message[]>(`/api/channels/${activeChannelId}/messages`, token)
-      .then((data) => setMessages(data))
-      .catch(() => setFetchError('Não foi possível carregar as mensagens. Tente novamente.'))
-      .finally(() => setIsLoadingMessages(false));
+    shouldAutoScrollRef.current = true;
+    setNextCursor(null);
+    apiFetch<{ messages: Message[]; nextCursor: string | null }>(`/api/channels/${activeChannelId}/messages`, token)
+      .then((data) => {
+        if (cancelled) return;
+        setMessages(data.messages);
+        setNextCursor(data.nextCursor);
+      })
+      .catch(() => {
+        if (!cancelled) setFetchError('Não foi possível carregar as mensagens. Tente novamente.');
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingMessages(false);
+      });
+
+    return () => {
+      cancelled = true;
+      olderMessagesControllerRef.current?.abort();
+      olderMessagesControllerRef.current = null;
+    };
   }, [token, activeChannelId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const loadOlderMessages = async () => {
+    if (!token || !activeChannelId || !nextCursor || isLoadingOlderMessages) return;
+
+    const list = messagesListRef.current;
+    const previousHeight = list?.scrollHeight ?? 0;
+    const requestedChannelId = activeChannelId;
+    const controller = new AbortController();
+    olderMessagesControllerRef.current?.abort();
+    olderMessagesControllerRef.current = controller;
+    setIsLoadingOlderMessages(true);
+
+    try {
+      const data = await apiFetch<{ messages: Message[]; nextCursor: string | null }>(
+        `/api/channels/${activeChannelId}/messages?cursor=${encodeURIComponent(nextCursor)}`,
+        token,
+        { signal: controller.signal },
+      );
+      if (controller.signal.aborted || requestedChannelId !== activeChannelId) return;
+      preserveScrollRef.current = true;
+      prependMessages(data.messages);
+      setNextCursor(data.nextCursor);
+      requestAnimationFrame(() => {
+        if (list) list.scrollTop += list.scrollHeight - previousHeight;
+      });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return;
+      setFetchError('Não foi possível carregar mensagens anteriores.');
+    } finally {
+      if (olderMessagesControllerRef.current === controller) {
+        olderMessagesControllerRef.current = null;
+        setIsLoadingOlderMessages(false);
+      }
+    }
+  };
+
+  const handleMessagesScroll = (event: React.UIEvent<HTMLDivElement>) => {
+    const element = event.currentTarget;
+    shouldAutoScrollRef.current = element.scrollHeight - element.clientHeight - element.scrollTop < 80;
+    if (event.currentTarget.scrollTop <= 24) loadOlderMessages();
+  };
 
   // Auto-scroll to bottom on new message
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (preserveScrollRef.current) {
+      preserveScrollRef.current = false;
+      return;
+    }
+    if (shouldAutoScrollRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages]);
 
   const handleSend = (e: React.FormEvent) => {
@@ -73,6 +148,21 @@ export default function MainApp() {
     });
     setChannels([...channels, newChannel]);
     setActiveChannelId(newChannel.id);
+  };
+
+  const handleSaveChannel = async (name: string, description: string) => {
+    if (!token) return;
+    if (!editingChannel) {
+      await handleCreateChannel(name, description);
+      return;
+    }
+
+    const updatedChannel = await apiFetch<Channel>(`/api/channels/${editingChannel.id}`, token, {
+      method: 'PUT',
+      body: JSON.stringify({ name, description }),
+    });
+    setChannels(channels.map((channel) => channel.id === updatedChannel.id ? updatedChannel : channel));
+    setEditingChannel(null);
   };
 
   const activeChannel = channels.find(c => c.id === activeChannelId);
@@ -98,17 +188,41 @@ export default function MainApp() {
             </button>
           </div>
 
+          {channelsError && (
+            <div className="sidebar-error" role="alert">
+              <span>{channelsError}</span>
+              <button type="button" onClick={() => setChannelsRetryKey((key) => key + 1)}>Tentar novamente</button>
+            </div>
+          )}
           <ul className="channel-list">
             {channels.map(channel => (
               <li
                 key={channel.id}
                 className={`channel-item ${activeChannelId === channel.id ? 'active' : ''}`}
                 onClick={() => setActiveChannelId(channel.id)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    setActiveChannelId(channel.id);
+                  }
+                }}
+                tabIndex={0}
                 role="button"
                 aria-current={activeChannelId === channel.id ? 'page' : undefined}
               >
                 <Hash size={20} className="channel-icon" />
                 <span>{channel.name}</span>
+                <button
+                  className="channel-edit-btn"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setEditingChannel(channel);
+                  }}
+                  title="Editar canal"
+                  aria-label={`Editar canal ${channel.name}`}
+                >
+                  <Pencil size={14} />
+                </button>
               </li>
             ))}
           </ul>
@@ -137,7 +251,8 @@ export default function MainApp() {
               </div>
             </div>
 
-            <div className="messages-list">
+            <div ref={messagesListRef} className="messages-list" onScroll={handleMessagesScroll}>
+              {isLoadingOlderMessages && <div className="loading-older">Carregando mensagens anteriores...</div>}
               {isLoadingMessages ? (
                 <div className="loading-state">
                   <Loader2 size={32} className="spinner" />
@@ -215,9 +330,16 @@ export default function MainApp() {
 
       {/* Modal (Don't Make Me Think — contextual, familiar UI) */}
       <CreateChannelModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onSubmit={handleCreateChannel}
+        isOpen={isModalOpen || editingChannel !== null}
+        onClose={() => {
+          setIsModalOpen(false);
+          setEditingChannel(null);
+        }}
+        onSubmit={handleSaveChannel}
+        initialName={editingChannel?.name}
+        initialDescription={editingChannel?.description || ''}
+        title={editingChannel ? 'Editar Canal de Texto' : undefined}
+        submitLabel={editingChannel ? 'Salvar alterações' : undefined}
       />
     </div>
   );

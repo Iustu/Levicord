@@ -79,6 +79,7 @@ GOOGLE_CLIENT_ID="seu_client_id_aqui"
 GOOGLE_CLIENT_SECRET="seu_client_secret_aqui"
 JWT_SECRET="um_segredo_muito_forte_aqui"
 FRONTEND_URL="http://localhost:5173"
+ADMIN_EMAILS="admin@example.com"
 ```
 
 ### 4. Subir a Infraestrutura (Docker)

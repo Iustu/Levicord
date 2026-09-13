@@ -1,34 +1,42 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { API_BASE } from '../lib/api';
 
 export function useAuth() {
   const navigate = useNavigate();
   const location = useLocation();
-  const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
+  const [token, setToken] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     // If returning from Google OAuth, the token might be in the URL
-    const searchParams = new URLSearchParams(location.search);
-    const urlToken = searchParams.get('token');
+    let cancelled = false;
+    fetch(`${API_BASE}/api/auth/session`, { credentials: 'include' })
+      .then((response) => {
+        if (!response.ok) throw new Error('Unauthenticated');
+        if (!cancelled) setToken('__cookie__');
+      })
+      .catch(() => {
+        if (!cancelled) setToken(null);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
 
-    if (urlToken) {
-      localStorage.setItem('token', urlToken);
-      setToken(urlToken);
-      
-      // Clean up the URL so the token doesn't stay there
-      navigate('/profile-setup', { replace: true });
-    }
+    return () => {
+      cancelled = true;
+    };
   }, [location, navigate]);
 
   const loginWithGoogle = () => {
-    window.location.href = 'http://localhost:3000/api/auth/google';
+    window.location.href = `${API_BASE}/api/auth/google`;
   };
 
   const logout = () => {
-    localStorage.removeItem('token');
+    void fetch(`${API_BASE}/api/auth/logout`, { method: 'POST', credentials: 'include' });
     setToken(null);
     navigate('/', { replace: true });
   };
 
-  return { token, loginWithGoogle, logout };
+  return { token, isLoading, loginWithGoogle, logout };
 }

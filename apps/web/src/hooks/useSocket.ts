@@ -1,7 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { useChatStore, Message } from '../stores/useChatStore';
+import { useChatStore } from '../stores/useChatStore';
+import type { Message } from '../stores/useChatStore';
 import { useAuth } from './useAuth';
+import { API_BASE } from '../lib/api';
 
 export function useSocket() {
   const socketRef = useRef<Socket | null>(null);
@@ -12,7 +14,7 @@ export function useSocket() {
     if (!token) return;
 
     // Connect to Socket.io server
-    socketRef.current = io('http://localhost:3000', {
+    socketRef.current = io(API_BASE, {
       auth: { token },
       withCredentials: true,
     });
