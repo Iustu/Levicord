@@ -15,7 +15,7 @@ export function useSocket() {
 
     // Connect to Socket.io server
     socketRef.current = io(API_BASE, {
-      auth: { token },
+      ...(token !== '__cookie__' ? { auth: { token } } : {}),
       withCredentials: true,
     });
 
