@@ -4,16 +4,18 @@ import './CreateChannelModal.css';
 interface CreateChannelModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (name: string, description: string) => Promise<void>;
+  onSubmit: (name: string, description: string, type: 'TEXT' | 'VOICE') => Promise<void>;
   initialName?: string;
   initialDescription?: string;
+  initialType?: 'TEXT' | 'VOICE';
   title?: string;
   submitLabel?: string;
 }
 
-export function CreateChannelModal({ isOpen, onClose, onSubmit, initialName = '', initialDescription = '', title = 'Criar Canal de Texto', submitLabel = 'Criar Canal' }: CreateChannelModalProps) {
+export function CreateChannelModal({ isOpen, onClose, onSubmit, initialName = '', initialDescription = '', initialType = 'TEXT', title = 'Criar Canal', submitLabel = 'Criar Canal' }: CreateChannelModalProps) {
   const [name, setName] = useState(initialName);
   const [description, setDescription] = useState(initialDescription);
+  const [type, setType] = useState<'TEXT' | 'VOICE'>(initialType);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
@@ -21,9 +23,10 @@ export function CreateChannelModal({ isOpen, onClose, onSubmit, initialName = ''
     if (isOpen) {
       setName(initialName);
       setDescription(initialDescription);
+      setType(initialType);
       setError('');
     }
-  }, [isOpen, initialName, initialDescription]);
+  }, [isOpen, initialName, initialDescription, initialType]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -47,9 +50,10 @@ export function CreateChannelModal({ isOpen, onClose, onSubmit, initialName = ''
     setError('');
     setIsLoading(true);
     try {
-      await onSubmit(name, description);
+      await onSubmit(name, description, type);
       setName('');
       setDescription('');
+      setType('TEXT');
       onClose();
     } catch (err: any) {
       setError(err.message || 'Falha ao criar canal.');
@@ -98,6 +102,30 @@ export function CreateChannelModal({ isOpen, onClose, onSubmit, initialName = ''
               maxLength={200}
             />
           </div>
+
+          {!initialName && (
+            <div className="modal-field">
+              <label className="modal-label">TIPO DO CANAL</label>
+              <div className="channel-type-selector">
+                <label className={`type-option ${type === 'TEXT' ? 'selected' : ''}`}>
+                  <input type="radio" name="channel-type" value="TEXT" checked={type === 'TEXT'} onChange={() => setType('TEXT')} />
+                  <span className="type-icon">#</span>
+                  <div>
+                    <strong>Texto</strong>
+                    <p>Poste imagens, textos e links.</p>
+                  </div>
+                </label>
+                <label className={`type-option ${type === 'VOICE' ? 'selected' : ''}`}>
+                  <input type="radio" name="channel-type" value="VOICE" checked={type === 'VOICE'} onChange={() => setType('VOICE')} />
+                  <span className="type-icon">🔊</span>
+                  <div>
+                    <strong>Voz</strong>
+                    <p>Reúna-se por voz, vídeo ou compartilhamento de tela.</p>
+                  </div>
+                </label>
+              </div>
+            </div>
+          )}
 
           {error && <p className="modal-error" role="alert">{error}</p>}
 

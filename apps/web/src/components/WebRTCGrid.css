@@ -1,0 +1,98 @@
+.webrtc-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #000;
+  overflow: hidden;
+}
+
+.webrtc-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  padding: 16px;
+  overflow-y: auto;
+  align-content: center;
+}
+
+.video-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  aspect-ratio: 16/9;
+  background: #202225;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+}
+
+.video-container video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.video-label {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  background: rgba(0,0,0,0.6);
+  color: #fff;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  backdrop-filter: blur(4px);
+}
+
+.webrtc-controls {
+  height: 64px;
+  background: #1e1f22;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 0 24px;
+}
+
+.control-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: none;
+  background: #313338;
+  color: #dbdee1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s, transform 0.1s;
+}
+
+.control-btn:hover {
+  background: #404249;
+}
+
+.control-btn:active {
+  transform: scale(0.95);
+}
+
+.control-btn.danger {
+  background: #ed4245;
+  color: #fff;
+}
+
+.control-btn.danger:hover {
+  background: #da373a;
+}
+
+.control-btn.disconnect {
+  background: #ed4245;
+  color: #fff;
+}
+
+.control-btn.disconnect:hover {
+  background: #da373a;
+}

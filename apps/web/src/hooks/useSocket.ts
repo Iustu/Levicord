@@ -28,6 +28,13 @@ export function useSocket() {
       addMessage(message);
     });
 
+    socketRef.current.on('new_dm', (dm: any) => {
+      // Determine the 'other' user to know where to put the message
+      const myUserId = JSON.parse(atob(token.split('.')[1])).sub;
+      const otherUserId = dm.senderId === myUserId ? dm.receiverId : dm.senderId;
+      useChatStore.getState().addDm(dm, otherUserId);
+    });
+
     return () => {
       socketRef.current?.disconnect();
     };
@@ -37,9 +44,13 @@ export function useSocket() {
     socketRef.current?.emit('join_channel', channelId);
   };
 
-  const sendMessage = (channelId: string, content: string) => {
-    socketRef.current?.emit('send_message', { channelId, content });
+  const sendMessage = (channelId: string, content: string | null, attachments?: any[]) => {
+    socketRef.current?.emit('send_message', { channelId, content, attachments });
   };
 
-  return { joinChannel, sendMessage };
+  const sendDm = (receiverId: string, content: string | null, attachments?: any[]) => {
+    socketRef.current?.emit('send_dm', { receiverId, content, attachments });
+  };
+
+  return { socket: socketRef.current, joinChannel, sendMessage, sendDm };
 }

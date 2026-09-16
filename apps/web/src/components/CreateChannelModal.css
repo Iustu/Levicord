@@ -172,3 +172,60 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+.channel-type-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.type-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #2b2d31;
+  padding: 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.type-option:hover {
+  background: #313338;
+}
+
+.type-option.selected {
+  background: #404249;
+  border-color: #5865f2;
+}
+
+.type-option input[type="radio"] {
+  display: none;
+}
+
+.type-option .type-icon {
+  font-size: 24px;
+  color: #80848e;
+}
+
+.type-option.selected .type-icon {
+  color: #dbdee1;
+}
+
+.type-option div {
+  display: flex;
+  flex-direction: column;
+}
+
+.type-option div strong {
+  color: #dbdee1;
+  font-size: 15px;
+  margin-bottom: 2px;
+}
+
+.type-option div p {
+  color: #b5bac1;
+  font-size: 13px;
+  margin: 0;
+}

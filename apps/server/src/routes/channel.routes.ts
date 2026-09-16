@@ -24,6 +24,7 @@ export default async function channelRoutes(fastify: FastifyInstance) {
       properties: {
         name: { type: 'string', minLength: 2, maxLength: 32, pattern: '^[a-z0-9-]+$' },
         description: { type: 'string', maxLength: 200 },
+        type: { type: 'string', enum: ['TEXT', 'VOICE'] },
       },
     },
   };
@@ -35,9 +36,9 @@ export default async function channelRoutes(fastify: FastifyInstance) {
     }
   };
 
-  fastify.post<{ Body: { name: string; description?: string } }>('/', { schema: createChannelSchema, preHandler: requireAdmin }, async (request, reply) => {
-    const { name, description } = request.body;
-    const channel = await createChannel(name, description);
+  fastify.post<{ Body: { name: string; description?: string; type?: 'TEXT' | 'VOICE' } }>('/', { schema: createChannelSchema, preHandler: requireAdmin }, async (request, reply) => {
+    const { name, description, type } = request.body;
+    const channel = await createChannel(name, description, type);
     return reply.code(201).send(channel);
   });
 

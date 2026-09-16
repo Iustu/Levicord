@@ -6,7 +6,7 @@ export async function getChannels() {
   });
 }
 
-export async function createChannel(name: string, description?: string) {
+export async function createChannel(name: string, description?: string, type: 'TEXT' | 'VOICE' = 'TEXT') {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       return await prisma.$transaction(async (transaction: any) => {
@@ -18,6 +18,7 @@ export async function createChannel(name: string, description?: string) {
           data: {
             name,
             description,
+            type,
             order: (highestOrder._max.order ?? -1) + 1,
           },
         });
@@ -49,7 +50,8 @@ export async function getChannelMessages(channelId: string, limit = 50, cursor?:
     include: {
       author: {
         select: { id: true, displayName: true, avatarUrl: true }
-      }
+      },
+      attachments: true
     }
   });
 
@@ -62,17 +64,23 @@ export async function getChannelMessages(channelId: string, limit = 50, cursor?:
   };
 }
 
-export async function createMessage(content: string, authorId: string, channelId: string) {
+export async function createMessage(content: string | null, authorId: string, channelId: string, attachments?: { url: string; type: 'image'|'video'|'file'; fileName: string; fileSize: number; mimeType: string }[]) {
   return prisma.message.create({
     data: {
       content,
       authorId,
       channelId,
+      ...(attachments && attachments.length > 0 ? {
+        attachments: {
+          create: attachments
+        }
+      } : {})
     },
     include: {
       author: {
         select: { id: true, displayName: true, avatarUrl: true }
-      }
+      },
+      attachments: true
     }
   });
 }
