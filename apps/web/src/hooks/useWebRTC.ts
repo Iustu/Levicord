@@ -11,6 +11,7 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
 
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!socket || !channelId || !enabled) return;
@@ -20,9 +21,11 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
         setLocalStream(stream);
         localStreamRef.current = stream;
+        setError(null);
         socket.emit('join_voice', channelId);
       } catch (err) {
-        console.error('Failed to get local stream. Check permissions.', err);
+        console.error('Failed to get local stream.', err);
+        setError('Permissão de câmera/microfone negada ou dispositivo não encontrado.');
       }
     };
 
@@ -40,36 +43,36 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
     };
   }, [socket, channelId, enabled]);
 
-  const createPeer = (targetSocketId: string, targetUserId: string) => {
-    const peer = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-    });
-
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach(track => {
-        peer.addTrack(track, localStreamRef.current!);
-      });
-    }
-
-    peer.onicecandidate = (event) => {
-      if (event.candidate) {
-        socket?.emit('webrtc_ice_candidate', { targetSocketId, candidate: event.candidate, channelId });
-      }
-    };
-
-    peer.ontrack = (event) => {
-      setRemoteStreams(prev => ({ 
-        ...prev, 
-        [targetSocketId]: { stream: event.streams[0], userId: targetUserId } 
-      }));
-    };
-
-    peersRef.current[targetSocketId] = peer;
-    return peer;
-  };
-
   useEffect(() => {
     if (!socket || !enabled) return;
+
+    const createPeer = (targetSocketId: string, targetUserId: string) => {
+      const peer = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      });
+
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => {
+          peer.addTrack(track, localStreamRef.current!);
+        });
+      }
+
+      peer.onicecandidate = (event) => {
+        if (event.candidate) {
+          socket?.emit('webrtc_ice_candidate', { targetSocketId, candidate: event.candidate, channelId });
+        }
+      };
+
+      peer.ontrack = (event) => {
+        setRemoteStreams(prev => ({ 
+          ...prev, 
+          [targetSocketId]: { stream: event.streams[0], userId: targetUserId } 
+        }));
+      };
+
+      peersRef.current[targetSocketId] = peer;
+      return peer;
+    };
 
     const handleUserJoined = async ({ userId, socketId }: { userId: string, socketId: string }) => {
       const peer = createPeer(socketId, userId);
@@ -78,7 +81,7 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
       socket.emit('webrtc_offer', { targetSocketId: socketId, offer, channelId });
     };
 
-    const handleOffer = async ({ fromSocketId, fromUserId, offer }: any) => {
+    const handleOffer = async ({ fromSocketId, fromUserId, offer }: { fromSocketId: string; fromUserId: string; offer: RTCSessionDescriptionInit }) => {
       const peer = createPeer(fromSocketId, fromUserId);
       await peer.setRemoteDescription(new RTCSessionDescription(offer));
       const answer = await peer.createAnswer();
@@ -86,21 +89,21 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
       socket.emit('webrtc_answer', { targetSocketId: fromSocketId, answer, channelId });
     };
 
-    const handleAnswer = async ({ fromSocketId, answer }: any) => {
+    const handleAnswer = async ({ fromSocketId, answer }: { fromSocketId: string; answer: RTCSessionDescriptionInit }) => {
       const peer = peersRef.current[fromSocketId];
       if (peer) {
         await peer.setRemoteDescription(new RTCSessionDescription(answer));
       }
     };
 
-    const handleCandidate = async ({ fromSocketId, candidate }: any) => {
+    const handleCandidate = async ({ fromSocketId, candidate }: { fromSocketId: string; candidate: RTCIceCandidateInit }) => {
       const peer = peersRef.current[fromSocketId];
       if (peer) {
         await peer.addIceCandidate(new RTCIceCandidate(candidate));
       }
     };
 
-    const handleUserLeft = ({ socketId }: any) => {
+    const handleUserLeft = ({ socketId }: { socketId: string }) => {
       const peer = peersRef.current[socketId];
       if (peer) {
         peer.close();
@@ -142,5 +145,5 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
     }
   };
 
-  return { localStream, remoteStreams, isMuted, isVideoOff, toggleMute, toggleVideo };
+  return { localStream, remoteStreams, isMuted, isVideoOff, toggleMute, toggleVideo, error };
 }

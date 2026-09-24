@@ -128,6 +128,7 @@ export function buildApp(): FastifyInstance {
 
   app.post('/api/auth/logout', async (_request, reply) => {
     reply.clearCookie('accessToken', { path: '/' });
+    reply.clearCookie('refreshToken', { path: '/' });
     return { status: 'ok' };
   });
 

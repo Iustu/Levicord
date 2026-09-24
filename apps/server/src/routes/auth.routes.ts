@@ -19,7 +19,32 @@ export default async function authRoutes(fastify: FastifyInstance) {
         return reply.code(401).send({ message: 'Unauthenticated' });
       }
     },
-  }, async () => ({ authenticated: true }));
+  }, async (request) => {
+    // Return actual user object instead of just { authenticated: true }
+    return { authenticated: true, user: request.user };
+  });
+
+  fastify.post('/refresh', async (request, reply) => {
+    const refreshToken = request.cookies.refreshToken;
+    if (!refreshToken) {
+      return reply.code(401).send({ message: 'No refresh token' });
+    }
+    try {
+      const decoded = fastify.jwt.verify<{sub: string}>(refreshToken);
+      const newAccessToken = fastify.jwt.sign({ sub: decoded.sub }, { expiresIn: '15m' });
+      
+      reply.setCookie('accessToken', newAccessToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 15 * 60,
+      });
+      return { status: 'ok' };
+    } catch (err) {
+      return reply.code(401).send({ message: 'Invalid refresh token' });
+    }
+  });
 
   fastify.patch<{ Body: { displayName: string } }>('/profile', {
     schema: {
@@ -75,17 +100,26 @@ export default async function authRoutes(fastify: FastifyInstance) {
       const user = await processGoogleUser(userInfo);
 
       const accessToken = await reply.jwtSign({ sub: user.id }, { expiresIn: '15m' });
-      // const refreshToken = await reply.jwtSign({ sub: user.id }, { expiresIn: '7d' });
-      // To properly handle refresh tokens, we'd set them via httpOnly cookie here.
+      const refreshToken = await reply.jwtSign({ sub: user.id }, { expiresIn: '7d' });
 
       const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-      reply.setCookie('accessToken', accessToken, {
+      
+      const cookieOptions = {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
+        sameSite: 'lax' as const,
         path: '/',
-        maxAge: 15 * 60,
+      };
+
+      reply.setCookie('accessToken', accessToken, {
+        ...cookieOptions,
+        maxAge: 15 * 60, // 15 minutes
       });
+      reply.setCookie('refreshToken', refreshToken, {
+        ...cookieOptions,
+        maxAge: 7 * 24 * 60 * 60, // 7 days
+      });
+
       reply.redirect(`${frontendUrl}/setup`);
 
     } catch (err) {

@@ -9,12 +9,14 @@ export function useAuth() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // If returning from Google OAuth, the token might be in the URL
     let cancelled = false;
     fetch(`${API_BASE}/api/auth/session`, { credentials: 'include' })
       .then((response) => {
         if (!response.ok) throw new Error('Unauthenticated');
-        if (!cancelled) setToken('__cookie__');
+        return response.json();
+      })
+      .then((data) => {
+        if (!cancelled && data.authenticated) setToken('authenticated');
       })
       .catch(() => {
         if (!cancelled) setToken(null);
@@ -23,8 +25,16 @@ export function useAuth() {
         if (!cancelled) setIsLoading(false);
       });
 
+    const handleUnauthorized = () => {
+      setToken(null);
+      navigate('/login', { replace: true });
+    };
+
+    window.addEventListener('auth_unauthorized', handleUnauthorized);
+
     return () => {
       cancelled = true;
+      window.removeEventListener('auth_unauthorized', handleUnauthorized);
     };
   }, [location, navigate]);
 

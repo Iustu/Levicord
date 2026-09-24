@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import './CreateChannelModal.css';
 
 interface CreateChannelModalProps {
@@ -19,12 +19,16 @@ export function CreateChannelModal({ isOpen, onClose, onSubmit, initialName = ''
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
+  const inputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     if (isOpen) {
       setName(initialName);
       setDescription(initialDescription);
       setType(initialType);
       setError('');
+      // Delay focus slightly to ensure DOM is ready
+      setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [isOpen, initialName, initialDescription, initialType]);
 
@@ -77,13 +81,13 @@ export function CreateChannelModal({ isOpen, onClose, onSubmit, initialName = ''
             <div className="input-prefix-wrapper">
               <span className="input-prefix">#</span>
               <input
+                ref={inputRef}
                 id="channel-name"
                 type="text"
                 className="modal-input"
                 placeholder="novo-canal"
                 value={name}
                 onChange={(e) => setName(sanitizeName(e.target.value))}
-                autoFocus
                 maxLength={32}
               />
             </div>

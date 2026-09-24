@@ -1,20 +1,15 @@
 import { FastifyInstance } from 'fastify';
 import { getChannels, createChannel, updateChannel, getChannelMessages } from '../services/channel.service';
 import { isAdmin } from '../services/auth.service';
+import { requireAuth, getAuthUserId } from '../lib/auth';
 
 export default async function channelRoutes(fastify: FastifyInstance) {
-  // Middleware to ensure user is authenticated for all channel routes
-  fastify.addHook('onRequest', async (request, reply) => {
-    try {
-      await request.jwtVerify();
-    } catch (err) {
-      reply.send(err);
-    }
-  });
+  // Single shared preHandler — eliminates duplicated addHook('onRequest') pattern
+  // (Engenharia de Software — DRY, Extract Function)
+  fastify.addHook('onRequest', requireAuth);
 
-  fastify.get('/', async (request, reply) => {
-    const channels = await getChannels();
-    return channels;
+  fastify.get('/', async () => {
+    return getChannels();
   });
 
   const createChannelSchema = {
@@ -29,18 +24,22 @@ export default async function channelRoutes(fastify: FastifyInstance) {
     },
   };
 
-  const requireAdmin = async (request: { user: unknown }, reply: { code: (status: number) => { send: (body: unknown) => unknown } }) => {
-    const userId = (request.user as { sub: string }).sub;
+  const requireAdmin = async (request: Parameters<typeof requireAuth>[0], reply: Parameters<typeof requireAuth>[1]) => {
+    const userId = getAuthUserId(request);
     if (!(await isAdmin(userId))) {
       return reply.code(403).send({ message: 'Administrator permissions required' });
     }
   };
 
-  fastify.post<{ Body: { name: string; description?: string; type?: 'TEXT' | 'VOICE' } }>('/', { schema: createChannelSchema, preHandler: requireAdmin }, async (request, reply) => {
-    const { name, description, type } = request.body;
-    const channel = await createChannel(name, description, type);
-    return reply.code(201).send(channel);
-  });
+  fastify.post<{ Body: { name: string; description?: string; type?: 'TEXT' | 'VOICE' } }>(
+    '/',
+    { schema: createChannelSchema, preHandler: requireAdmin },
+    async (request, reply) => {
+      const { name, description, type } = request.body;
+      const channel = await createChannel(name, description, type);
+      return reply.code(201).send(channel);
+    },
+  );
 
   fastify.put<{ Params: { id: string }; Body: { name: string; description?: string } }>(
     '/:id',
@@ -50,8 +49,9 @@ export default async function channelRoutes(fastify: FastifyInstance) {
         const { id } = request.params;
         const { name, description } = request.body;
         return await updateChannel(id, name, description);
-      } catch (error: any) {
-        if (error.code === 'P2025') {
+      } catch (error: unknown) {
+        // P2025 = Prisma "Record not found"
+        if ((error as { code?: string }).code === 'P2025') {
           return reply.code(404).send({ message: 'Channel not found' });
         }
         throw error;
@@ -59,12 +59,14 @@ export default async function channelRoutes(fastify: FastifyInstance) {
     },
   );
 
-  fastify.get<{ Params: { id: string }, Querystring: { cursor?: string } }>('/:id/messages', async (request, reply) => {
-    const { id } = request.params;
-    const { cursor } = request.query;
-    
-    const result = await getChannelMessages(id, 50, cursor);
-    // Reverse because we queried descending, but the UI renders oldest to newest.
-    return { ...result, messages: result.messages.reverse() };
-  });
+  fastify.get<{ Params: { id: string }; Querystring: { cursor?: string } }>(
+    '/:id/messages',
+    async (request) => {
+      const { id } = request.params;
+      const { cursor } = request.query;
+      const result = await getChannelMessages(id, 50, cursor);
+      // Reverse because we query descending (newest first) but UI renders oldest to newest.
+      return { ...result, messages: result.messages.reverse() };
+    },
+  );
 }
