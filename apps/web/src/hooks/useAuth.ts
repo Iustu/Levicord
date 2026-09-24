@@ -42,8 +42,14 @@ export function useAuth() {
     window.location.href = `${API_BASE}/api/auth/google`;
   };
 
-  const logout = () => {
-    void fetch(`${API_BASE}/api/auth/logout`, { method: 'POST', credentials: 'include' });
+  const logout = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/auth/logout`, { method: 'POST', credentials: 'include' });
+      if (!response.ok) throw new Error('Logout failed');
+    } catch {
+      window.dispatchEvent(new CustomEvent('toast_error', { detail: 'Falha ao encerrar sessão. Tente novamente.' }));
+      return;
+    }
     setToken(null);
     navigate('/', { replace: true });
   };

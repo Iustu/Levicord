@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../prisma';
 
 export async function getChannels() {
@@ -9,7 +10,7 @@ export async function getChannels() {
 export async function createChannel(name: string, description?: string, type: 'TEXT' | 'VOICE' = 'TEXT') {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      return await prisma.$transaction(async (transaction: any) => {
+      return await prisma.$transaction(async (transaction: Prisma.TransactionClient) => {
         const highestOrder = await transaction.channel.aggregate({
           _max: { order: true },
         });

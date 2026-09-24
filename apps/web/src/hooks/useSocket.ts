@@ -19,12 +19,7 @@ export function useSocket() {
       withCredentials: true,
     });
 
-    socketRef.current.on('connect', () => {
-      console.log('Connected to socket server');
-    });
-
     socketRef.current.on('new_message', (message: Message) => {
-      // The store handles appending the message
       addMessage(message);
     });
 

@@ -77,4 +77,7 @@ model Attachment {
   dmId      String?
   message   Message? @relation(fields: [messageId], references: [id])
   dm        DirectMessage? @relation(fields: [dmId], references: [id])
+
+  @@index([messageId])
+  @@index([dmId])
 }

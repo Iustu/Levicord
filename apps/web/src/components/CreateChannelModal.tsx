@@ -59,8 +59,8 @@ export function CreateChannelModal({ isOpen, onClose, onSubmit, initialName = ''
       setDescription('');
       setType('TEXT');
       onClose();
-    } catch (err: any) {
-      setError(err.message || 'Falha ao criar canal.');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Falha ao criar canal.');
     } finally {
       setIsLoading(false);
     }

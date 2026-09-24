@@ -34,25 +34,25 @@
 ## 🟡 PRIORIDADE 3: MÉDIA (Refinamentos de UX, Tipagem e CI/CD)
 *Erros pontuais de design, falta de polimento nas pipelines ou "code smells" locais.*
 
-| # | Área | Gap Técnico | Impacto | Ação Recomendada |
-|---|------|-------------|---------|------------------|
-| **3.1** | **UX / Errors** | `logout()` do frontend faz um `fetch` assíncrono não aguardado (void). Ignora falhas de rede. | Usuário pensa que saiu, mas cookie continua válido caso caia a internet no exato momento. | Fazer `await` com `try/catch` e notificar em Toast de erro. |
-| **3.2** | **CI / CD** | Ausência de verificação de Lint (ESLint), formatação (Prettier) e secret scan na pipeline (GitHub Actions). | Código pode acumular lixo sem padrão ou vazar chaves sem alerta automático. | Adicionar `pnpm lint` e `trufflehog` ao Action. Configurar limits no Docker. |
-| **3.3** | **Acessibilidade** | Lista de canais sem rolagem apropriada, sem navegação puramente via teclado, foco perdido ao fechar modals e botões faltantes para o modal de criar canal. | Viola parte fina da especificação WCAG AA para navegação de leitores de tela. | Ajustes pontuais nos componentes React usando bibliotecas headless (Radix UI). |
-| **3.4** | **TypeScript** | `(error: any)` usados em blocos catch e tipagens `any` para models soltos no frontend e no Prisma `$transaction`. | Perda da segurança de tipo no compilador e no LSP da IDE. | Refatorar para `unknown` e usar checagem de tipo explícita (ex: `if (error instanceof Error)`). |
-| **3.5** | **Segurança** | O cookie JWT usa `sameSite: 'lax'`. | Uma margem minúscula de ataque cross-site. | Como o app consome própria API sem redirecionamentos externos complexos, alterar para `'strict'`. |
-| **3.6** | **Performance UI** | Renderização sem `Lazy Load` das imagens e atualizações não reativas usando Spread Operator excessivo no array do WebRTC. | Ligeira degradação de FPS no frontend ao rolar chat cheio de imagens. | Usar `loading="lazy"` nas imagens e melhorar a mutabilidade do Zustand/SetState. |
-| **3.7** | **Banco de Dados** | A entidade `Attachment` está sem índices para `messageId` e `dmId`. | Se a tabela inchar, buscar todos os anexos de uma mensagem pode ficar N+1 lento. | Adicionar `@@index` nas FKs. |
+| # | Status | Área | Gap Técnico | Impacto | Ação Recomendada |
+|---|--------|------|-------------|---------|------------------|
+| **3.1** | ✅ **RESOLVIDO** | **UX / Errors** | `logout()` do frontend fazia `fetch` assíncrono não aguardado (void). Ignorava falhas de rede. | Usuário pensava que saiu, mas cookie continuava válido caso caísse a internet. | `logout()` refatorado para `async`; faz `await` no fetch com `try/catch`; dispara evento `toast_error` em falha de rede. **Arquivo:** `apps/web/src/hooks/useAuth.ts` |
+| **3.2** | ⏳ **PENDENTE** | **CI / CD** | Ausência de verificação de Lint (ESLint), formatação (Prettier) e secret scan na pipeline (GitHub Actions). | Código pode acumular lixo sem padrão ou vazar chaves sem alerta automático. | Adicionar `pnpm lint` e `trufflehog` ao Action. Configurar limits no Docker. |
+| **3.3** | ⏳ **PENDENTE** | **Acessibilidade** | Lista de canais sem rolagem apropriada, sem navegação puramente via teclado, foco perdido ao fechar modals e botões faltantes para o modal de criar canal. | Viola parte fina da especificação WCAG AA para navegação de leitores de tela. | Ajustes pontuais nos componentes React usando bibliotecas headless (Radix UI). |
+| **3.4** | ✅ **RESOLVIDO** | **TypeScript** | `(error: any)` usados em blocos catch e tipagem `any` no Prisma `$transaction`. | Perda da segurança de tipo no compilador e no LSP da IDE. | `CreateChannelModal.tsx`: `catch (err: any)` → `catch (err: unknown)` + `instanceof Error`. `channel.service.ts`: `$transaction` tipado como `Prisma.TransactionClient`. **Arquivos:** `apps/web/src/components/CreateChannelModal.tsx`, `apps/server/src/services/channel.service.ts` |
+| **3.5** | ✅ **RESOLVIDO** | **Segurança** | Cookie JWT usava `sameSite: 'lax'`. | Margem de ataque cross-site. | Alterado para `sameSite: 'strict'` nos dois `setCookie` (callback OAuth + endpoint `/refresh`). **Arquivo:** `apps/server/src/routes/auth.routes.ts` |
+| **3.6** | ⏳ **PENDENTE** | **Performance UI** | Renderização sem `Lazy Load` das imagens e atualizações não reativas usando Spread Operator excessivo no array do WebRTC. | Ligeira degradação de FPS no frontend ao rolar chat cheio de imagens. | Usar `loading="lazy"` nas imagens e melhorar a mutabilidade do Zustand/SetState. |
+| **3.7** | ✅ **RESOLVIDO** | **Banco de Dados** | Entidade `Attachment` estava sem índices para `messageId` e `dmId`. | Buscar anexos de uma mensagem ficaria N+1 lento com tabela grande. | Adicionado `@@index([messageId])` e `@@index([dmId])` no model `Attachment`. **Arquivo:** `apps/server/prisma/schema.prisma` — ⚠️ executar `npx prisma migrate dev` com banco ativo. |
 
 ---
 
 ## 🟢 PRIORIDADE 4: BAIXA ("Nice to Have")
 *Features e polimentos que diferenciam a aplicação, mas não causam danos de negócio se ausentes.*
 
-| # | Área | Gap Técnico | Impacto | Ação Recomendada |
-|---|------|-------------|---------|------------------|
-| **4.1** | **UX / Features** | Chat sem indicador de *"Digitando..."* e sem suporte a formatação *Markdown* visual (negrito, itálico, code blocks). | Diminui o valor percebido de "clone do Discord". | Usar Socket para eventos `typing_start`/`stop`. Usar `react-markdown`. |
-| **4.2** | **UX** | Upload de arquivo é feito de forma binária e direta, sem barra de progresso no frontend e sem mensagem visual pós-sucesso. | Usuário pode pensar que a tela travou em uploads maiores que 5MB. | Implementar barra atrelada ao evento `onUploadProgress` do Axios/Fetch. |
-| **4.3** | **Prevenção de Erros** | O modal de Criação de Canal ou Upload pode ser fechado acidentalmente perdendo o texto já digitado. | Frustração do usuário (viola preceitos do *Don't Make Me Think*). | Alerta do navegador "Você tem dados não salvos, certeza?" se tentar fechar e o estado estiver dirty. |
-| **4.4** | **Observabilidade** | Ausência de métricas APM (Application Performance Monitoring). | Só o log existe; não há como ver gráficos de uso de CPU do app. | Instalar Prometheus/Grafana basic bundle no Docker e exportar endpoint `/metrics` no Fastify. |
-| **4.5** | **Limpeza** | `console.log('Connected')` vazando no cliente em ambiente de Produção. | Ruído. | Remover do `useSocket`. |
+| # | Status | Área | Gap Técnico | Impacto | Ação Recomendada |
+|---|--------|------|-------------|---------|------------------|
+| **4.1** | ⏳ **PENDENTE** | **UX / Features** | Chat sem indicador de *"Digitando..."* e sem suporte a formatação *Markdown* visual (negrito, itálico, code blocks). | Diminui o valor percebido de "clone do Discord". | Usar Socket para eventos `typing_start`/`stop`. Usar `react-markdown`. |
+| **4.2** | ⏳ **PENDENTE** | **UX** | Upload de arquivo é feito de forma binária e direta, sem barra de progresso no frontend e sem mensagem visual pós-sucesso. | Usuário pode pensar que a tela travou em uploads maiores que 5MB. | Implementar barra atrelada ao evento `onUploadProgress` do Axios/Fetch. |
+| **4.3** | ⏳ **PENDENTE** | **Prevenção de Erros** | O modal de Criação de Canal ou Upload pode ser fechado acidentalmente perdendo o texto já digitado. | Frustração do usuário (viola preceitos do *Don't Make Me Think*). | Alerta do navegador "Você tem dados não salvos, certeza?" se tentar fechar e o estado estiver dirty. |
+| **4.4** | ⏳ **PENDENTE** | **Observabilidade** | Ausência de métricas APM (Application Performance Monitoring). | Só o log existe; não há como ver gráficos de uso de CPU do app. | Instalar Prometheus/Grafana basic bundle no Docker e exportar endpoint `/metrics` no Fastify. |
+| **4.5** | ✅ **RESOLVIDO** | **Limpeza** | `console.log('Connected to socket server')` vazando no cliente em ambiente de Produção. | Ruído nos DevTools em produção. | Removido do handler `connect` em `useSocket`. **Arquivo:** `apps/web/src/hooks/useSocket.ts` |
