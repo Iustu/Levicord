@@ -12,12 +12,14 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    
+      with:
+        fetch-depth: 0
+
     - name: Use Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '20.x'
-        
+
     - name: Install pnpm
       uses: pnpm/action-setup@v3
       with:
@@ -25,6 +27,12 @@ jobs:
 
     - name: Install dependencies
       run: pnpm install --frozen-lockfile
+
+    - name: Lint
+      run: pnpm lint
+
+    - name: Format check
+      run: pnpm format --check
 
     - name: Build
       run: pnpm build
@@ -37,3 +45,18 @@ jobs:
 
     - name: Dependency Audit
       run: pnpm audit --audit-level high
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: TruffleHog secret scan
+      uses: trufflesecurity/trufflehog@main
+      with:
+        path: ./
+        base: ${{ github.event.repository.default_branch }}
+        head: HEAD
+        extra_args: --only-verified

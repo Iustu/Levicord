@@ -64,10 +64,12 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
       };
 
       peer.ontrack = (event) => {
-        setRemoteStreams(prev => ({ 
-          ...prev, 
-          [targetSocketId]: { stream: event.streams[0], userId: targetUserId } 
-        }));
+        setRemoteStreams(prev => {
+          if (prev[targetSocketId]?.stream === event.streams[0]) return prev;
+          const next = new Map(Object.entries(prev));
+          next.set(targetSocketId, { stream: event.streams[0], userId: targetUserId });
+          return Object.fromEntries(next);
+        });
       };
 
       peersRef.current[targetSocketId] = peer;
@@ -110,9 +112,10 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
         delete peersRef.current[socketId];
       }
       setRemoteStreams(prev => {
-        const next = { ...prev };
-        delete next[socketId];
-        return next;
+        if (!(socketId in prev)) return prev;
+        const next = new Map(Object.entries(prev));
+        next.delete(socketId);
+        return Object.fromEntries(next);
       });
     };
 

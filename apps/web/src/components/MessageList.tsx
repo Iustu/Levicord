@@ -1,4 +1,5 @@
 import type { RefObject } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { Hash, Loader2 } from 'lucide-react';
 import { API_BASE } from '../lib/api';
 import type { Message, DirectMessage, User } from '../stores/useChatStore';
@@ -16,9 +17,10 @@ interface MessageListProps {
   onRetry: () => void;
   messagesEndRef: RefObject<HTMLDivElement | null>;
   messagesListRef: RefObject<HTMLDivElement | null>;
+  typingUserNames?: string[];
 }
 
-function renderAttachment(att: any) {
+function renderAttachment(att: { id?: string; url: string; type: string; fileName: string }) {
   const fullUrl = att.url.startsWith('/') ? `${API_BASE}${att.url}` : att.url;
   if (att.type === 'image') {
     return (
@@ -41,11 +43,6 @@ function renderAttachment(att: any) {
   );
 }
 
-/**
- * Pure presentational component for the chat message list.
- * Extracted from MainApp to enforce SRP — this component only renders messages.
- * (Engenharia de Software — SRP, Component extraction)
- */
 export function MessageList({
   messages,
   viewMode,
@@ -58,6 +55,7 @@ export function MessageList({
   onRetry,
   messagesEndRef,
   messagesListRef,
+  typingUserNames = [],
 }: MessageListProps) {
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     if (e.currentTarget.scrollTop <= 24) onLoadOlder();
@@ -80,6 +78,12 @@ export function MessageList({
       </div>
     );
   }
+
+  const typingLabel = typingUserNames.length === 1
+    ? `${typingUserNames[0]} está digitando...`
+    : typingUserNames.length > 1
+      ? `${typingUserNames.slice(0, -1).join(', ')} e ${typingUserNames[typingUserNames.length - 1]} estão digitando...`
+      : null;
 
   return (
     <div ref={messagesListRef} className="messages-list" onScroll={handleScroll}>
@@ -116,7 +120,7 @@ export function MessageList({
             ? (viewMode === 'channels' ? (prevMsg as Message).author : (prevMsg as DirectMessage).sender)
             : null;
           const isConsecutive = prevAuthor?.id === author.id;
-          const msgAttachments = (msg as any).attachments || [];
+          const msgAttachments = (msg as { attachments?: { id?: string; url: string; type: string; fileName: string }[] }).attachments || [];
 
           return (
             <div key={msg.id} className={`message-item ${isConsecutive ? 'consecutive' : ''}`}>
@@ -136,7 +140,11 @@ export function MessageList({
                     </span>
                   </div>
                 )}
-                {msg.content && <p className="text">{msg.content}</p>}
+                {msg.content && (
+                  <div className="text markdown-content">
+                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  </div>
+                )}
                 {msgAttachments.length > 0 && (
                   <div className="msg-attachments">
                     {msgAttachments.map(renderAttachment)}
@@ -147,6 +155,14 @@ export function MessageList({
           );
         })
       )}
+
+      {typingLabel && (
+        <div className="typing-indicator" aria-live="polite">
+          <span className="typing-dots"><span /><span /><span /></span>
+          <span className="typing-text">{typingLabel}</span>
+        </div>
+      )}
+
       <div ref={messagesEndRef} />
     </div>
   );

@@ -1,11 +1,14 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { Send, Paperclip, Loader2, X } from 'lucide-react';
 import { API_BASE } from '../lib/api';
 
 interface ChatInputProps {
   placeholder: string;
   token: string;
+  channelId?: string | null;
   onSend: (content: string | null, attachment: UploadedAttachment | null) => void;
+  onTypingStart?: () => void;
+  onTypingStop?: () => void;
 }
 
 export interface UploadedAttachment {
@@ -16,52 +19,104 @@ export interface UploadedAttachment {
   mimeType: string;
 }
 
-/**
- * Self-contained chat input with integrated file upload.
- * Extracted from MainApp to enforce SRP.
- * (Engenharia de Software — SRP, Component extraction)
- */
-export function ChatInput({ placeholder, token, onSend }: ChatInputProps) {
+export function ChatInput({ placeholder, token, onSend, onTypingStart, onTypingStop }: ChatInputProps) {
   const [inputText, setInputText] = useState('');
   const [pendingAttachment, setPendingAttachment] = useState<UploadedAttachment | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isTypingRef = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      if (isTypingRef.current) onTypingStop?.();
+    };
+  }, [onTypingStop]);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInputText(e.target.value);
+
+    if (!isTypingRef.current) {
+      isTypingRef.current = true;
+      onTypingStart?.();
+    }
+
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => {
+      isTypingRef.current = false;
+      onTypingStop?.();
+    }, 2000);
+  };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setIsUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
+    setUploadProgress(0);
+    setUploadError(null);
 
-      const res = await fetch(`${API_BASE}/api/upload`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: token !== '__cookie__' ? { Authorization: `Bearer ${token}` } : {},
-        body: formData,
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: 'Upload falhou' }));
-        throw new Error(err.error || 'Upload falhou');
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const xhr = new XMLHttpRequest();
+
+    xhr.upload.addEventListener('progress', (event) => {
+      if (event.lengthComputable) {
+        setUploadProgress(Math.round((event.loaded / event.total) * 100));
       }
-      const attachment = (await res.json()) as UploadedAttachment;
-      setPendingAttachment(attachment);
-    } catch (err) {
-      console.error(err);
-    } finally {
+    });
+
+    xhr.addEventListener('load', () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const attachment = JSON.parse(xhr.responseText) as UploadedAttachment;
+          setPendingAttachment(attachment);
+          setUploadProgress(100);
+        } catch {
+          setUploadError('Resposta inválida do servidor.');
+        }
+      } else {
+        try {
+          const err = JSON.parse(xhr.responseText) as { error?: string };
+          setUploadError(err.error || 'Upload falhou.');
+        } catch {
+          setUploadError('Upload falhou.');
+        }
+      }
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
-    }
+    });
+
+    xhr.addEventListener('error', () => {
+      setUploadError('Erro de rede durante o upload.');
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    });
+
+    xhr.open('POST', `${API_BASE}/api/upload`);
+    xhr.withCredentials = true;
+    if (token !== '__cookie__') xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    xhr.send(formData);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim() && !pendingAttachment) return;
+
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    if (isTypingRef.current) {
+      isTypingRef.current = false;
+      onTypingStop?.();
+    }
+
     onSend(inputText.trim() || null, pendingAttachment);
     setInputText('');
     setPendingAttachment(null);
+    setUploadProgress(0);
   };
 
   const canSend = !!inputText.trim() || !!pendingAttachment;
@@ -77,6 +132,20 @@ export function ChatInput({ placeholder, token, onSend }: ChatInputProps) {
             aria-label="Remover anexo"
           >
             <X size={14} />
+          </button>
+        </div>
+      )}
+      {isUploading && (
+        <div className="upload-progress">
+          <div className="upload-progress-bar" style={{ width: `${uploadProgress}%` }} />
+          <span className="upload-progress-label">{uploadProgress}%</span>
+        </div>
+      )}
+      {uploadError && (
+        <div className="upload-error" role="alert">
+          {uploadError}
+          <button type="button" onClick={() => setUploadError(null)} aria-label="Fechar">
+            <X size={12} />
           </button>
         </div>
       )}
@@ -104,7 +173,7 @@ export function ChatInput({ placeholder, token, onSend }: ChatInputProps) {
           type="text"
           placeholder={placeholder}
           value={inputText}
-          onChange={(e) => setInputText(e.target.value)}
+          onChange={handleInputChange}
           className="chat-input"
           maxLength={2000}
           aria-label="Campo de mensagem"

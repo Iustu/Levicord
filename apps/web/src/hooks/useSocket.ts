@@ -1,9 +1,24 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useChatStore } from '../stores/useChatStore';
 import type { Message } from '../stores/useChatStore';
 import { useAuth } from './useAuth';
 import { API_BASE } from '../lib/api';
+
+interface AttachmentPayload {
+  url: string;
+  type: 'image' | 'video' | 'file';
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+}
+
+interface DmPayload {
+  id: string;
+  senderId: string;
+  receiverId: string;
+  [key: string]: unknown;
+}
 
 export function useSocket() {
   const socketRef = useRef<Socket | null>(null);
@@ -13,7 +28,6 @@ export function useSocket() {
   useEffect(() => {
     if (!token) return;
 
-    // Connect to Socket.io server
     socketRef.current = io(API_BASE, {
       ...(token !== '__cookie__' ? { auth: { token } } : {}),
       withCredentials: true,
@@ -23,11 +37,11 @@ export function useSocket() {
       addMessage(message);
     });
 
-    socketRef.current.on('new_dm', (dm: any) => {
-      // Determine the 'other' user to know where to put the message
-      const myUserId = JSON.parse(atob(token.split('.')[1])).sub;
+    socketRef.current.on('new_dm', (dm: DmPayload) => {
+      const myUserId = JSON.parse(atob(token.split('.')[1])).sub as string;
       const otherUserId = dm.senderId === myUserId ? dm.receiverId : dm.senderId;
-      useChatStore.getState().addDm(dm, otherUserId);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      useChatStore.getState().addDm(dm as any, otherUserId);
     });
 
     return () => {
@@ -35,17 +49,25 @@ export function useSocket() {
     };
   }, [token, addMessage]);
 
-  const joinChannel = (channelId: string) => {
+  const joinChannel = useCallback((channelId: string) => {
     socketRef.current?.emit('join_channel', channelId);
-  };
+  }, []);
 
-  const sendMessage = (channelId: string, content: string | null, attachments?: any[]) => {
+  const sendMessage = useCallback((channelId: string, content: string | null, attachments?: AttachmentPayload[]) => {
     socketRef.current?.emit('send_message', { channelId, content, attachments });
-  };
+  }, []);
 
-  const sendDm = (receiverId: string, content: string | null, attachments?: any[]) => {
+  const sendDm = useCallback((receiverId: string, content: string | null, attachments?: AttachmentPayload[]) => {
     socketRef.current?.emit('send_dm', { receiverId, content, attachments });
-  };
+  }, []);
 
-  return { socket: socketRef.current, joinChannel, sendMessage, sendDm };
+  const sendTypingStart = useCallback((channelId: string) => {
+    socketRef.current?.emit('typing_start', channelId);
+  }, []);
+
+  const sendTypingStop = useCallback((channelId: string) => {
+    socketRef.current?.emit('typing_stop', channelId);
+  }, []);
+
+  return { socket: socketRef.current, joinChannel, sendMessage, sendDm, sendTypingStart, sendTypingStop };
 }

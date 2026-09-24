@@ -7,6 +7,7 @@ import fastifyRateLimit from '@fastify/rate-limit';
 import fastifyHelmet from '@fastify/helmet';
 import fastifyMultipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
+import fastifyMetrics from 'fastify-metrics';
 import path from 'path';
 import authRoutes from './routes/auth.routes';
 import channelRoutes from './routes/channel.routes';
@@ -91,6 +92,9 @@ export function buildApp(): FastifyInstance {
     callbackUri: callbackUrl,
     scope: ['profile', 'email']
   });
+
+  // APM metrics (Prometheus-compatible /metrics endpoint)
+  app.register(fastifyMetrics, { endpoint: '/metrics' });
 
   // Socket.io
   app.register(require('fastify-socket.io'), {

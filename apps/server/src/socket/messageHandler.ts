@@ -41,6 +41,16 @@ export function registerMessageHandler(io: Server, socket: Socket, userId: strin
     socket.data.channelId = channelId;
   });
 
+  socket.on('typing_start', (channelId: string) => {
+    if (!z.string().cuid().safeParse(channelId).success) return;
+    socket.to(channelId).emit('user_typing', { userId, channelId });
+  });
+
+  socket.on('typing_stop', (channelId: string) => {
+    if (!z.string().cuid().safeParse(channelId).success) return;
+    socket.to(channelId).emit('user_stopped_typing', { userId, channelId });
+  });
+
   socket.on('send_message', async (data: unknown) => {
     const result = messageSchema.safeParse(data);
     if (!result.success) {

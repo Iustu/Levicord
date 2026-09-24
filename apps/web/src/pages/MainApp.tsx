@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Hash, Plus, Pencil, MessageCircle, Volume2 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
@@ -37,10 +37,48 @@ export default function MainApp() {
     activeDmUserId, setActiveDmUserId, dms, setDms,
   } = useChatStore();
 
-  const { joinChannel, sendMessage, sendDm } = useSocket();
+  const { socket, joinChannel, sendMessage, sendDm, sendTypingStart, sendTypingStop } = useSocket();
+
+  const [typingUserNames, setTypingUserNames] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!socket) return;
+    const typingTimers: Record<string, ReturnType<typeof setTimeout>> = {};
+
+    const onTyping = (data: { userId: string; channelId: string }) => {
+      if (data.channelId !== activeChannelId) return;
+      const user = users.find((u) => u.id === data.userId);
+      const name = user?.displayName ?? 'Alguém';
+      setTypingUserNames((prev) => prev.includes(name) ? prev : [...prev, name]);
+      if (typingTimers[data.userId]) clearTimeout(typingTimers[data.userId]);
+      typingTimers[data.userId] = setTimeout(() => {
+        setTypingUserNames((prev) => prev.filter((n) => n !== name));
+        delete typingTimers[data.userId];
+      }, 3000);
+    };
+
+    const onStopTyping = (data: { userId: string }) => {
+      const user = users.find((u) => u.id === data.userId);
+      const name = user?.displayName ?? 'Alguém';
+      if (typingTimers[data.userId]) {
+        clearTimeout(typingTimers[data.userId]);
+        delete typingTimers[data.userId];
+      }
+      setTypingUserNames((prev) => prev.filter((n) => n !== name));
+    };
+
+    socket.on('user_typing', onTyping);
+    socket.on('user_stopped_typing', onStopTyping);
+    return () => {
+      socket.off('user_typing', onTyping);
+      socket.off('user_stopped_typing', onStopTyping);
+      Object.values(typingTimers).forEach(clearTimeout);
+    };
+  }, [socket, activeChannelId, users]);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
+  const createChannelBtnRef = useRef<HTMLButtonElement>(null);
 
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
@@ -95,6 +133,7 @@ export default function MainApp() {
     setFetchError(null);
     shouldAutoScrollRef.current = true;
     setNextCursor(null);
+    setTypingUserNames([]);
 
     apiFetch<{ messages: Message[]; nextCursor: string | null }>(
       `/api/channels/${activeChannelId}/messages`,
@@ -247,7 +286,7 @@ export default function MainApp() {
             <>
               <div className="channels-header">
                 <span>CANAIS</span>
-                <button className="icon-btn" onClick={() => setIsModalOpen(true)} aria-label="Criar novo canal" title="Criar Canal">
+                <button ref={createChannelBtnRef} className="icon-btn" onClick={() => setIsModalOpen(true)} aria-label="Criar novo canal" title="Criar Canal">
                   <Plus size={16} />
                 </button>
               </div>
@@ -257,12 +296,16 @@ export default function MainApp() {
                   <button type="button" onClick={() => setChannelsRetryKey((k) => k + 1)}>Tentar novamente</button>
                 </div>
               )}
-              <ul className="channel-list">
+              <ul className="channel-list" role="listbox" aria-label="Canais">
                 {channels.map((channel) => (
                   <li
                     key={channel.id}
                     className={`channel-item ${activeChannelId === channel.id ? 'active' : ''}`}
                     onClick={() => handleChannelClick(channel)}
+                    role="option"
+                    aria-selected={activeChannelId === channel.id}
+                    tabIndex={0}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleChannelClick(channel); } }}
                   >
                     {channel.type === 'VOICE'
                       ? <Volume2 size={20} className="channel-icon" aria-hidden="true" />
@@ -283,12 +326,16 @@ export default function MainApp() {
           ) : (
             <>
               <div className="channels-header"><span>MENSAGENS DIRETAS</span></div>
-              <ul className="channel-list">
+              <ul className="channel-list" role="listbox" aria-label="Mensagens Diretas">
                 {users.map((user) => (
                   <li
                     key={user.id}
                     className={`channel-item ${activeDmUserId === user.id ? 'active' : ''}`}
                     onClick={() => setActiveDmUserId(user.id)}
+                    role="option"
+                    aria-selected={activeDmUserId === user.id}
+                    tabIndex={0}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveDmUserId(user.id); } }}
                   >
                     <img
                       src={user.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${user.displayName}`}
@@ -362,12 +409,15 @@ export default function MainApp() {
                   }
                   messagesEndRef={messagesEndRef}
                   messagesListRef={messagesListRef}
+                  typingUserNames={typingUserNames}
                 />
                 {token && (
                   <ChatInput
                     placeholder={chatPlaceholder}
                     token={token}
                     onSend={handleSend}
+                    onTypingStart={viewMode === 'channels' && activeChannelId ? () => sendTypingStart(activeChannelId) : undefined}
+                    onTypingStop={viewMode === 'channels' && activeChannelId ? () => sendTypingStop(activeChannelId) : undefined}
                   />
                 )}
               </>
@@ -394,6 +444,7 @@ export default function MainApp() {
         initialType={editingChannel?.type ?? 'TEXT'}
         title={editingChannel ? 'Editar Canal' : undefined}
         submitLabel={editingChannel ? 'Salvar alterações' : undefined}
+        triggerRef={createChannelBtnRef}
       />
     </div>
   );

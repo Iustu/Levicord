@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import './CreateChannelModal.css';
 
 interface CreateChannelModalProps {
@@ -10,9 +10,10 @@ interface CreateChannelModalProps {
   initialType?: 'TEXT' | 'VOICE';
   title?: string;
   submitLabel?: string;
+  triggerRef?: React.RefObject<HTMLElement | null>;
 }
 
-export function CreateChannelModal({ isOpen, onClose, onSubmit, initialName = '', initialDescription = '', initialType = 'TEXT', title = 'Criar Canal', submitLabel = 'Criar Canal' }: CreateChannelModalProps) {
+export function CreateChannelModal({ isOpen, onClose, onSubmit, initialName = '', initialDescription = '', initialType = 'TEXT', title = 'Criar Canal', submitLabel = 'Criar Canal', triggerRef }: CreateChannelModalProps) {
   const [name, setName] = useState(initialName);
   const [description, setDescription] = useState(initialDescription);
   const [type, setType] = useState<'TEXT' | 'VOICE'>(initialType);
@@ -27,19 +28,26 @@ export function CreateChannelModal({ isOpen, onClose, onSubmit, initialName = ''
       setDescription(initialDescription);
       setType(initialType);
       setError('');
-      // Delay focus slightly to ensure DOM is ready
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [isOpen, initialName, initialDescription, initialType]);
 
+  const isDirty = name !== initialName || description !== initialDescription || type !== initialType;
+
+  const handleClose = useCallback(() => {
+    if (isDirty && !window.confirm('Você tem dados não salvos. Deseja descartar?')) return;
+    onClose();
+    setTimeout(() => triggerRef?.current?.focus(), 0);
+  }, [isDirty, onClose, triggerRef]);
+
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') handleClose();
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [isOpen, handleClose]);
 
   // Only allow lowercase letters, numbers, and hyphens (matching server schema)
   const sanitizeName = (val: string) =>
@@ -70,7 +78,7 @@ export function CreateChannelModal({ isOpen, onClose, onSubmit, initialName = ''
 
   return (
     // Backdrop — clicking outside closes the modal (Don't Make Me Think — familiar pattern)
-    <div className="modal-backdrop" onClick={onClose} role="dialog" aria-modal="true" aria-labelledby="modal-title" aria-describedby="modal-description">
+    <div className="modal-backdrop" onClick={handleClose} role="dialog" aria-modal="true" aria-labelledby="modal-title" aria-describedby="modal-description">
       <div className="modal-box" onClick={(e) => e.stopPropagation()}>
         <h2 id="modal-title" className="modal-title">{title}</h2>
         <p id="modal-description" className="modal-subtitle">Canais são os espaços onde acontecem as conversas.</p>
@@ -134,7 +142,7 @@ export function CreateChannelModal({ isOpen, onClose, onSubmit, initialName = ''
           {error && <p className="modal-error" role="alert">{error}</p>}
 
           <div className="modal-actions">
-            <button type="button" className="btn-cancel" onClick={onClose} disabled={isLoading}>
+            <button type="button" className="btn-cancel" onClick={handleClose} disabled={isLoading}>
               Cancelar
             </button>
             <button type="submit" className="btn-create" disabled={!name || isLoading}>

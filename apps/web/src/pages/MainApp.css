@@ -595,3 +595,105 @@
 .btn-join-voice:hover {
   background: #1a6334;
 }
+
+/* Typing indicator */
+.typing-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 16px 8px;
+  font-size: 12px;
+  color: #b5bac1;
+  min-height: 24px;
+}
+
+.typing-dots {
+  display: flex;
+  gap: 3px;
+}
+
+.typing-dots span {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #b5bac1;
+  animation: typing-bounce 1.2s infinite ease-in-out;
+}
+
+.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes typing-bounce {
+  0%, 60%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-4px); }
+}
+
+/* Upload progress */
+.upload-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  background: #2f3136;
+  border-radius: 4px;
+  margin-bottom: 4px;
+}
+
+.upload-progress-bar {
+  height: 4px;
+  background: #5865f2;
+  border-radius: 2px;
+  transition: width 0.1s ease;
+  flex: 1;
+}
+
+.upload-progress-label {
+  font-size: 11px;
+  color: #b5bac1;
+  min-width: 32px;
+  text-align: right;
+}
+
+.upload-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: rgba(237, 66, 69, 0.15);
+  border: 1px solid #ed4245;
+  border-radius: 4px;
+  color: #ed4245;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.upload-error button {
+  background: transparent;
+  border: none;
+  color: #ed4245;
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+}
+
+/* Markdown content in messages */
+.markdown-content p { margin: 0; }
+.markdown-content p + p { margin-top: 4px; }
+.markdown-content code {
+  background: #2f3136;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 85%;
+}
+.markdown-content pre {
+  background: #2f3136;
+  padding: 8px 12px;
+  border-radius: 4px;
+  overflow-x: auto;
+  margin: 4px 0;
+}
+.markdown-content pre code { background: none; padding: 0; }
+.markdown-content strong { color: #fff; }
+.markdown-content em { color: #dcddde; }
