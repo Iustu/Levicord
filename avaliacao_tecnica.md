@@ -1,64 +1,60 @@
-# 🔍 Plano de Ação Priorizado — Levicord (Backlog de Gaps Técnicos)
+# 🔍 Plano de Ação Priorizado — Levicord (Gaps Pendentes)
 
-> Esta avaliação técnica foi reestruturada para refletir **a ordem de criticidade** de resolução. O projeto já passou por pesadas refatorações (IDOR, WebRTC Seguro, Refresh Tokens, SRP e Paginação), eliminando a esmagadora maioria dos bugs críticos de código. 
-> 
-> O que resta agora forma o **Backlog** para as próximas fases.
+> Apenas itens **PENDENTES** — resolvidos removidos. Gaps detectados pelo cruzamento com os 4 livros de referência marcados com 📚.
 
 ---
 
 ## 🔴 PRIORIDADE 1: CRÍTICA (Bloqueantes para Produção)
-*Problemas graves de gestão, vazamento de credenciais ou ausência total de garantias de qualidade contínua. Resolvê-los é mandatório antes de qualquer lançamento público real.*
 
-| # | Status | Área | Gap Técnico | Impacto | Ação Recomendada |
-|---|--------|------|-------------|---------|------------------|
-| **1.1** | ❌ **PENDENTE** | **DevSecOps** | Segredos Hardcoded no Docker: `JWT_SECRET` e `DATABASE_URL` estão com valores explícitos no `docker-compose.yml` que vai para o repositório. | Invasão direta ao banco de dados e falsificação de tokens JWT caso o repositório seja lido. | Substituir as chaves no YAML por variáveis de ambiente (`${JWT_SECRET}`) injetadas via `.env` externo ou Secret Manager na CI. |
-| **1.2** | ❌ **PENDENTE** | **Testes** | Ausência absoluta de testes automatizados (`app.test.ts` está vazio e frontend não possui setup). | Toda nova feature inserida (como os recentes tokens) corre enorme risco de quebrar regras antigas de negócio silenciosamente. | Implementar testes Unitários com Vitest (para Services) e Integração com Supertest (para Routes). |
-| **1.3** | ✅ **RESOLVIDO** | **Infraestrutura** | O serviço do `MinIO` (S3 clone) estava ativado consumindo RAM no Docker Compose, mas o backend fazia upload de arquivos diretamente no disco local. | Desperdício de recursos de nuvem, complexidade inútil e risco de disco cheio no servidor de aplicação. | Upload via SDK `minio` direto para bucket. Download via presigned URL (redirect 302) — servidor não faz proxy de bytes. `ensureBucket()` no startup cria o bucket se não existir. `@fastify/static` removido. MinIO com healthcheck no compose. **Arquivos:** `apps/server/src/lib/minio.ts`, `apps/server/src/routes/upload.routes.ts`, `apps/server/src/routes/download.routes.ts`, `docker-compose.yml` |
-
----
-
-## 🟠 PRIORIDADE 2: ALTA (Débito Técnico e Performance Estrutural)
-*Gaps arquiteturais que, embora não quebrem a aplicação imediatamente, vão causar lentidão extrema, exaustão de memória ou acoplamentos severos no médio prazo.*
-
-| # | Status | Área | Gap Técnico | Impacto | Ação Recomendada |
-|---|--------|------|-------------|---------|------------------|
-| **2.1** | ✅ **RESOLVIDO** | **Gestão de Estado** | O estado `dms` do Zustand não possui limite lógico. Se o usuário abrir muitos chats, a RAM do navegador estourará. | Vazamento de memória clássico de SPA (*Memory Leak* no client). | LRU Cache implementado no store do Zustand. Limite de 20 conversas ativas. Entradas mais antigas são evicted automaticamente. **Arquivo:** `apps/web/src/stores/useChatStore.ts` |
-| **2.2** | ✅ **RESOLVIDO** | **Otimização** | `getChannels` e `getUsers` buscam todos os registros da base sem paginação (`limit`/`offset`). | *Full Table Scans* farão as rotas caírem por timeout quando o Discord tiver centenas de usuários. | `getChannels`: paginação offset (`limit`/`offset`, max 200). `getUsers`: paginação cursor-based. Ambas as rotas expõem os parâmetros via query string. **Arquivos:** `apps/server/src/services/channel.service.ts`, `apps/server/src/services/user.service.ts`, rotas correspondentes. |
-| **2.3** | ✅ **RESOLVIDO** | **Segurança / UX** | Anexos sendo servidos abertamente pelo `@fastify/static`. Não há verificação se o usuário que acessa a imagem/arquivo possui leitura àquele canal de DMs. | Quebra de privacidade de arquivos trocados em mensagem direta. | `fastifyStatic` removido. Nova rota `GET /uploads/:filename` com `requireAuth` faz stream do arquivo com header `Cache-Control: private`. **Arquivo:** `apps/server/src/routes/download.routes.ts` |
-| **2.4** | ✅ **RESOLVIDO** | **Arquitetura** | Hook `useSocket` continua muito central. Ele gerencia conexão, binds de eventos, state de stores e métodos imperativos. | Viola SRP. Dificulta muito a criação de testes de mock para WebSocket. | Quebrado em `useSocketConnection` (cria/destrói socket), `useSocketListeners` (registra handlers de eventos) e `useSocket` (facade — interface pública inalterada para callers). **Arquivos:** `apps/web/src/hooks/useSocketConnection.ts`, `apps/web/src/hooks/useSocketListeners.ts`, `apps/web/src/hooks/useSocket.ts` |
-| **2.5** | ✅ **RESOLVIDO** | **SRE** | Ausência de *Graceful Shutdown*. Se o servidor reinicia, conexões web socket morrem subitamente. | Perda de mensagens em trânsito e timeouts secos pro usuário. | `SIGTERM`/`SIGINT` interceptados: `app.close()` para HTTP, `io.close()` para Socket.io, `prisma.$disconnect()` e `redis.quit()`. **Arquivo:** `apps/server/src/server.ts` |
-| **2.6** | ✅ **RESOLVIDO** | **Otimização DB** | Função middleware de admin (`isAdmin`) realiza query no SQL em toda e qualquer rota de administração, sem cache. | Sobrecarga I/O desnecessária ao PostgreSQL para dados frios. | Resultado cacheado no Redis com TTL de 60s (chave `admin:<userId>`). Cache-aside: hit evita query; miss popula o cache. **Arquivo:** `apps/server/src/services/auth.service.ts` |
+| # | Área | Gap Técnico | Impacto | Fonte | Ação Recomendada |
+|---|------|-------------|---------|-------|------------------|
+| **1.1** | **DevSecOps** | Segredos hardcoded no `docker-compose.yml`: `JWT_SECRET: local-development-secret-change-in-production` e `DATABASE_URL` com senha em texto plano. | Compromisso total de auth e banco se o repositório for lido. | BSRS Cap.14 · DevSecOps L2 | Substituir por `${JWT_SECRET}` sem valor default. Injetar via `.env` nunca commitado + `.env.example` documentado. |
+| **1.2** | **Testes** | Ausência absoluta de testes automatizados: `app.test.ts` vazio, frontend sem setup. Vitest instalado mas zero casos escritos. | Qualquer mudança em `isAdmin`, `evictLru` ou nas routes quebra silenciosamente. Gap unânime nos 4 livros. | BSRS Cap.13 · DevSecOps L3 · ESM Cap.8 · DMMT Cap.9 | Vitest + Supertest (server) + React Testing Library (web). Cobrir: `auth.service`, `channel.service`, `isAdmin`, `evictLru`, routes de auth e upload. |
+| **1.3** | **DevSecOps / Supply Chain** 📚 | Sem SCA no CI: `pnpm audit` não roda, sem Dependabot. ~400 dependências transitivas sem auditoria de CVEs. | CVE em `fastify`, `ioredis`, `minio` ou `prisma` passa despercebido indefinidamente. | DevSecOps L3 · BSRS Cap.7 | `pnpm audit --audit-level=high` no CI (falha o build). Dependabot (`dependabot.yml`) para PRs automáticos semanais. |
 
 ---
 
-## 🟡 PRIORIDADE 3: MÉDIA (Refinamentos de UX, Tipagem e CI/CD)
-*Erros pontuais de design, falta de polimento nas pipelines ou "code smells" locais.*
+## 🟠 PRIORIDADE 2: ALTA (Segurança Estrutural)
 
-| # | Status | Área | Gap Técnico | Impacto | Ação Recomendada |
-|---|--------|------|-------------|---------|------------------|
-| **3.1** | ✅ **RESOLVIDO** | **UX / Errors** | `logout()` do frontend fazia `fetch` assíncrono não aguardado (void). Ignorava falhas de rede. | Usuário pensava que saiu, mas cookie continuava válido caso caísse a internet. | `logout()` refatorado para `async`; faz `await` no fetch com `try/catch`; dispara evento `toast_error` em falha de rede. **Arquivo:** `apps/web/src/hooks/useAuth.ts` |
-| **3.2** | ✅ **RESOLVIDO** | **CI / CD** | Ausência de verificação de Lint, formatação e secret scan na pipeline. | Código acumulava lixo sem padrão ou vazava chaves sem alerta. | `pnpm lint` e `pnpm format --check` adicionados ao job principal. Job separado `secret-scan` com `trufflehog@main` usando `--only-verified`. **Arquivo:** `.github/workflows/ci.yml` |
-| **3.3** | ✅ **RESOLVIDO** | **Acessibilidade** | Lista de canais sem navegação via teclado, foco perdido ao fechar modal. | Viola WCAG AA para leitores de tela. | `channel-list` e DM list: `role="listbox"`, itens com `role="option"`, `aria-selected`, `tabIndex={0}`, `onKeyDown` (Enter/Space). Modal: `triggerRef` restaura foco ao botão de origem ao fechar. **Arquivos:** `apps/web/src/pages/MainApp.tsx`, `apps/web/src/components/CreateChannelModal.tsx` |
-| **3.4** | ✅ **RESOLVIDO** | **TypeScript** | `(error: any)` usados em blocos catch e tipagem `any` no Prisma `$transaction`. | Perda da segurança de tipo no compilador e no LSP da IDE. | `CreateChannelModal.tsx`: `catch (err: any)` → `catch (err: unknown)` + `instanceof Error`. `channel.service.ts`: `$transaction` tipado como `Prisma.TransactionClient`. **Arquivos:** `apps/web/src/components/CreateChannelModal.tsx`, `apps/server/src/services/channel.service.ts` |
-| **3.5** | ✅ **RESOLVIDO** | **Segurança** | Cookie JWT usava `sameSite: 'lax'`. | Margem de ataque cross-site. | Alterado para `sameSite: 'strict'` nos dois `setCookie` (callback OAuth + endpoint `/refresh`). **Arquivo:** `apps/server/src/routes/auth.routes.ts` |
-| **3.6** | ✅ **RESOLVIDO** | **Performance UI** | Sem `Lazy Load` nas imagens e spread excessivo no `setRemoteStreams` do WebRTC causando re-renders desnecessários. | Degradação de FPS em chats com muitas imagens e em chamadas com múltiplos participantes. | `loading="lazy"` aplicado em todas as imagens de anexo (`MessageList`). `setRemoteStreams` refatorado para usar `Map` com early-return quando stream é idêntico — evita criar novo objeto quando nada mudou. **Arquivos:** `apps/web/src/components/MessageList.tsx`, `apps/web/src/hooks/useWebRTC.ts` |
-| **3.7** | ✅ **RESOLVIDO** | **Banco de Dados** | Entidade `Attachment` estava sem índices para `messageId` e `dmId`. | Buscar anexos de uma mensagem ficaria N+1 lento com tabela grande. | Adicionado `@@index([messageId])` e `@@index([dmId])` no model `Attachment`. **Arquivo:** `apps/server/prisma/schema.prisma` — ⚠️ executar `npx prisma migrate dev` com banco ativo. |
+| # | Área | Gap Técnico | Impacto | Fonte | Ação Recomendada |
+|---|------|-------------|---------|-------|------------------|
+| **2.1** | **Segurança / Auditoria** 📚 | Sem log estruturado de eventos de segurança: auth failures, uploads rejeitados, ações admin, acessos negados. | Impossível investigar incidente post-mortem. Sem audit trail, sistema não é auditável. | BSRS Cap.15 · DevSecOps L2 | `app.log.info({ event, userId, ip, ... })` em: `requireAuth` (falha), `isAdmin` (negado), `upload.routes` (MIME rejeitado), logout, callback OAuth. |
+| **2.2** | **DevSecOps / SAST** 📚 | Sem SAST além de `tsc`. TypeScript não detecta timing attacks, regex DoS, injection fora do ORM. `tsc --noEmit` também não roda no CI. | Vulnerabilidades sutis e erros de tipo não detectados no PR. | DevSecOps L3 · BSRS Cap.13 | Semgrep (`semgrep --config=p/typescript`) ou GitHub CodeQL. Adicionar `tsc --noEmit` como step separado de `build`. |
+| **2.3** | **DevSecOps / DAST** 📚 | Sem DAST: nenhuma varredura de segurança contra a aplicação em execução. | Vulnerabilidades só detectáveis em runtime (SSRF, open redirect, headers ausentes) passam invisíveis. | DevSecOps L3 | OWASP ZAP scan (`zaproxy/action-full-scan`) no CI contra ambiente de staging. |
+| **2.4** | **DevSecOps / Containers** 📚 | Sem container image scanning: imagens `node:20`, `postgres:16`, `redis:7` podem ter CVEs não detectados. | Vulnerabilidade no OS base compromete todo o serviço. | DevSecOps L3 | `aquasecurity/trivy-action` em cada Dockerfile no CI. Falhar build em severidade `CRITICAL`. |
+| **2.5** | **Segurança / Least Privilege** 📚 | Sem ACL por canal: qualquer user autenticado lê/escreve qualquer canal. Só `isAdmin` diferencia roles. | Canais privados expostos a todos os membros autenticados. Viola menor privilégio. | BSRS Cap.5 · DevSecOps L2 | Campo `isPrivate` + tabela `ChannelMember` no Prisma. Guard em `GET /:id/messages` e handler `join_channel` verificando membership. |
+| **2.6** | **Segurança / XSS** 📚 | `content` de mensagem salvo sem sanitização server-side. `react-markdown` mitiga no browser mas dados brutos no banco vazam via outras superfícies. | XSS latente. Qualquer client sem sanitização executa payload malicioso. | BSRS Cap.12 · DevSecOps L2 | `sanitize-html` no server. Sanitizar `content` antes de `prisma.message.create` em `channel.service.ts` e `dm.service.ts`. |
+| **2.7** | **DevSecOps / Processo** 📚 | Sem processo de triagem de CVEs nem SLA de patching. SCA vai detectar vulnerabilidades mas sem processo a resposta fica indefinida. | CVEs críticos detectados mas sem ação por falta de processo. | DevSecOps L3 | Definir SLA: CRITICAL ≤ 48h, HIGH ≤ 7 dias. Issue automática via Dependabot. Triagem semanal designada. |
+
+---
+
+## 🟡 PRIORIDADE 3: MÉDIA (Confiabilidade, UX e Processo)
+
+| # | Área | Gap Técnico | Impacto | Fonte | Ação Recomendada |
+|---|------|-------------|---------|-------|------------------|
+| **3.1** | **SRE / Backup** 📚 | Sem backup automático de PostgreSQL e MinIO. Sem RTO/RPO definidos. | Falha de disco = perda total de dados. | BSRS Caps.16-18 · DevSecOps L2 | `pg_dump` via cron + `mc mirror` para bucket externo. Documentar RTO/RPO no README. |
+| **3.2** | **SRE / Resiliência** 📚 | Sem circuit breaker nem retry com backoff: se Postgres cair server crasha; se MinIO cair upload retorna 500 genérico. | Falha em cascata — um serviço derruba toda a stack sem aviso. | BSRS Cap.10 · DevSecOps L3 | `try/catch` com fallback em `ensureBucket()`. `/readyz` verificar MinIO. Retornar 503 descritivo. Retry com exponential backoff nos clients. |
+| **3.3** | **SRE / Infraestrutura** 📚 | Single-instance de tudo sem réplica nem failover automático. | Qualquer restart derruba o sistema por inteiro. | BSRS Cap.8 | Postgres com réplica read-only. Redis Sentinel. Server com 2+ instâncias atrás de load balancer. |
+| **3.4** | **UX / Navegação** 📚 | Sem busca de mensagens ou canais. Trunk Test (Krug Cap.6): qualquer site não trivial precisa de search. | Usabilidade degrada conforme volume de mensagens cresce. | DMMT Cap.6 | `GET /api/channels/:id/messages/search?q=` com `ILIKE` no Postgres. Campo de busca no header com debounce. |
+| **3.5** | **Processo / Rastreabilidade** 📚 | Commits sem mensagem descritiva: `"teste"`, `"tche tche rere"`, `"Bahh tche"`. Sem conventional commits. | Rastreabilidade zero entre commits e features. Impossível gerar changelog. | ESM Cap.10 | Conventional Commits (`feat:`, `fix:`, `chore:`) + `commitlint` + `husky` pre-commit hook. |
+| **3.6** | **Segurança / Processo** 📚 | Sem threat modelling formal (STRIDE). Controles existem mas sem rastreabilidade a adversários. Nenhum DFD produzido. | Controles são reativos, não proativos. | DevSecOps L2 · BSRS Cap.2 | Documento STRIDE para fluxos críticos: auth, upload, DMs, admin. Identificar ameaças por categoria. |
+| **3.7** | **Processo / Code Review** 📚 | Commits diretos em `main` sem PRs nem revisor. Nenhuma verificação antes de merge. | Erro lógico ou gap de segurança entra sem segundo par de olhos. | DevSecOps L1 | Branch protection em `main`: PR + 1 approval obrigatório. Template de PR com checklist de segurança. |
 
 ---
 
 ## 🟢 PRIORIDADE 4: BAIXA ("Nice to Have")
-*Features e polimentos que diferenciam a aplicação, mas não causam danos de negócio se ausentes.*
 
-| # | Status | Área | Gap Técnico | Impacto | Ação Recomendada |
-|---|--------|------|-------------|---------|------------------|
-| **4.1** | ✅ **RESOLVIDO** | **UX / Features** | Chat sem indicador de *"Digitando..."* e sem suporte a formatação *Markdown* visual. | Diminui o valor percebido de "clone do Discord". | Servidor: eventos `typing_start`/`typing_stop` emitidos via Socket no `messageHandler.ts`. Frontend: `useSocket` expõe `sendTypingStart`/`sendTypingStop`; `ChatInput` emite ao digitar (debounce 2s); `MessageList` exibe indicador animado. Markdown: `react-markdown` instalado e aplicado em todas as mensagens. **Arquivos:** `apps/server/src/socket/messageHandler.ts`, `apps/web/src/hooks/useSocket.ts`, `apps/web/src/components/ChatInput.tsx`, `apps/web/src/components/MessageList.tsx` |
-| **4.2** | ✅ **RESOLVIDO** | **UX** | Upload sem barra de progresso e sem feedback visual pós-sucesso. | Usuário pode achar que travou em uploads > 5MB. | Substituído `fetch` por `XMLHttpRequest` com listener `upload.progress` — barra de progresso exibida com % em tempo real. Erro de rede exibido inline com dismiss. **Arquivo:** `apps/web/src/components/ChatInput.tsx` |
-| **4.3** | ✅ **RESOLVIDO** | **Prevenção de Erros** | Modal de criação de canal podia ser fechado acidentalmente perdendo dados. | Frustração do usuário. | `handleClose` substituiu `onClose` direto — se `isDirty`, exibe `window.confirm` antes de fechar. Aplicado no backdrop, botão cancelar e tecla Escape. **Arquivo:** `apps/web/src/components/CreateChannelModal.tsx` |
-| **4.4** | ✅ **RESOLVIDO** | **Observabilidade** | Ausência de métricas APM. | Impossível ver gráficos de uso sem APM. | `fastify-metrics@10.6.0` instalado; endpoint `/metrics` registrado no Fastify. Prometheus + Grafana adicionados ao `docker-compose.yml`. Arquivo `prometheus.yml` criado com scrape do server. **Arquivos:** `apps/server/src/app.ts`, `docker-compose.yml`, `prometheus.yml` |
-| **4.5** | ✅ **RESOLVIDO** | **Limpeza** | `console.log('Connected to socket server')` vazando no cliente em ambiente de Produção. | Ruído nos DevTools em produção. | Removido do handler `connect` em `useSocket`. **Arquivo:** `apps/web/src/hooks/useSocket.ts` |
+| # | Área | Gap Técnico | Impacto | Fonte | Ação Recomendada |
+|---|------|-------------|---------|-------|------------------|
+| **4.1** | **UX / Mobile** 📚 | Sidebar de largura fixa sem media queries. App inutilizável em smartphone. `icon-btn` provavelmente abaixo de 44px touch target. | Bloqueante para qualquer expansão além de time interno fixo. | DMMT Cap.10 | Breakpoints CSS: sidebar colapsável em `< 768px`. Touch targets mínimos 44×44px. |
+| **4.2** | **SRE / CI** 📚 | Sem deploy contínuo: pipeline tem lint + format + secret scan mas nenhum step de deploy automatizado. | Risco de divergência entre `main` e produção. | ESM Cap.10 | Job `deploy` no CI via SSH + `docker compose pull && docker compose up -d` após testes passarem. |
+| **4.3** | **SRE / Processo** 📚 | Sem runbook nem playbook de incident response. Sem procedimento de credential rotation documentado. | Em caso de incidente: equipe sem roteiro de ação. | BSRS Caps.16-18 | `RUNBOOK.md`: reiniciar cada serviço, `pg_dump` manual, rotacionar `JWT_SECRET` sem downtime. |
+| **4.4** | **UX / Onboarding** 📚 | Login page tem "Welcome Back" mas sem tagline explicando o sistema. Zero contexto para usuário novo. | Inviável para qualquer expansão além de time já conhecendo o produto. | DMMT Cap.7 | Tagline de uma linha: ex. `"Levicord — Chat seguro para sua equipe"`. |
+| **4.5** | **Qualidade / Observabilidade** 📚 | Sem SLOs numéricos. Prometheus coleta mas sem threshold de alerta — impossível saber quando sistema degrada. | Grafana sem baseline de comparação. | ESM Cap.3 | Definir SLOs: `p95 < 200ms` em rotas de mensagem, uptime `≥ 99.5%`. Alertas no Grafana quando violados. |
+| **4.6** | **Infraestrutura / Segurança** 📚 | Sem criptografia em repouso no PostgreSQL. Dados de mensagens e DMs em texto plano no volume Docker. | Disco comprometido fisicamente = todos os dados expostos. | BSRS Cap.14 | `pgcrypto` para colunas sensíveis ou encryption-at-rest no nível do volume (LUKS / provider managed). |
+| **4.7** | **Qualidade / Testabilidade** 📚 | Services testáveis mas sem injeção de dependência: Prisma e Redis são imports diretos — mock exige `vi.mock` no módulo inteiro. | Testes de unit difíceis de isolar sem mock invasivo. | ESM Cap.8 | Injetar `prisma` e `redis` como parâmetros nas funções de service. Permite mock simples por parâmetro. |
 
 ---
-
 ## 📚 CRUZAMENTO COM LITERATURA TÉCNICA
 
 > Análise de aderência do projeto aos conceitos dos 4 livros técnicos de referência. Evidências extraídas diretamente do código.
