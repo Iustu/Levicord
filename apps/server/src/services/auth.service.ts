@@ -1,4 +1,5 @@
 import { prisma } from '../prisma';
+import { redis } from '../lib/redis';
 
 function configuredAdminEmails() {
   return new Set((process.env.ADMIN_EMAILS || '').split(',').map((email) => email.trim().toLowerCase()).filter(Boolean));
@@ -36,12 +37,20 @@ export async function processGoogleUser(userInfo: GoogleUserInfo) {
   return user;
 }
 
+const ADMIN_CACHE_TTL = 60; // seconds
+
 export async function isAdmin(userId: string) {
+  const cacheKey = `admin:${userId}`;
+  const cached = await redis.get(cacheKey);
+  if (cached !== null) return cached === '1';
+
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { role: true },
   });
-  return user?.role === 'ADMIN';
+  const result = user?.role === 'ADMIN';
+  await redis.set(cacheKey, result ? '1' : '0', 'EX', ADMIN_CACHE_TTL);
+  return result;
 }
 
 export async function updateUserProfile(userId: string, displayName: string) {

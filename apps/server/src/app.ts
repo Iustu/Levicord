@@ -6,12 +6,12 @@ import fastifyJwt from '@fastify/jwt';
 import fastifyRateLimit from '@fastify/rate-limit';
 import fastifyHelmet from '@fastify/helmet';
 import fastifyMultipart from '@fastify/multipart';
-import fastifyStatic from '@fastify/static';
 import fastifyMetrics from 'fastify-metrics';
 import path from 'path';
 import authRoutes from './routes/auth.routes';
 import channelRoutes from './routes/channel.routes';
 import uploadRoutes from './routes/upload.routes';
+import downloadRoutes from './routes/download.routes';
 import { prisma } from './prisma';
 import { redis } from './socket';
 
@@ -61,11 +61,6 @@ export function buildApp(): FastifyInstance {
   app.register(fastifyCookie);
   app.register(fastifyMultipart);
   
-  app.register(fastifyStatic, {
-    root: path.join(process.cwd(), 'uploads'),
-    prefix: '/uploads/',
-  });
-
   app.register(fastifyRateLimit, {
     max: 100, // max 100 requests per time window
     timeWindow: '1 minute'
@@ -110,6 +105,7 @@ export function buildApp(): FastifyInstance {
   app.register(channelRoutes, { prefix: '/api/channels' });
   app.register(require('./routes/user.routes').default, { prefix: '/api/users' });
   app.register(uploadRoutes, { prefix: '/api/upload' });
+  app.register(downloadRoutes, { prefix: '/uploads' });
 
   app.get('/livez', async () => {
     return { status: 'ok' };

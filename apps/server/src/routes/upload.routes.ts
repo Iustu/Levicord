@@ -1,12 +1,9 @@
 import { FastifyInstance } from 'fastify';
-import fs from 'fs';
 import path from 'path';
-import { pipeline } from 'stream/promises';
 import crypto from 'crypto';
 import { requireAuth } from '../lib/auth';
+import { minioClient, MINIO_BUCKET } from '../lib/minio';
 
-// Allowed MIME types — server-side allowlist (client-declared mimetype is not trusted)
-// (Building Secure and Reliable Systems — Defense in Depth)
 const ALLOWED_MIME_TYPES = new Set([
   'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml',
   'video/mp4', 'video/webm', 'video/ogg',
@@ -22,25 +19,12 @@ function getAttachmentType(mimeType: string): 'image' | 'video' | 'file' {
   return 'file';
 }
 
-/**
- * Sanitizes a filename to prevent path traversal attacks.
- * Keeps only the basename and alphanumeric + safe chars.
- * (Building Secure and Reliable Systems — Input Sanitization)
- */
 function sanitizeFilename(raw: string): string {
   const basename = path.basename(raw);
-  // Replace any character that isn't alphanumeric, dash, dot, or underscore
   return basename.replace(/[^a-zA-Z0-9.\-_]/g, '_').slice(0, 100);
 }
 
 export default async function uploadRoutes(fastify: FastifyInstance) {
-  const uploadDir = path.join(process.cwd(), 'uploads');
-  if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
-  }
-
-  // Centralized auth hook — no longer duplicated from other routes
-  // (Engenharia de Software — DRY)
   fastify.addHook('onRequest', requireAuth);
 
   fastify.post('/', async (request, reply) => {
@@ -52,39 +36,43 @@ export default async function uploadRoutes(fastify: FastifyInstance) {
       return reply.code(400).send({ error: 'No file uploaded' });
     }
 
-    // Validate MIME type against server-side allowlist
     if (!ALLOWED_MIME_TYPES.has(data.mimetype)) {
       return reply.code(415).send({ error: 'File type not allowed' });
     }
 
-    // Use a random UUID for the stored filename to prevent path traversal
-    // and avoid exposing original filenames in disk paths
     const safeOriginalName = sanitizeFilename(data.filename);
     const ext = path.extname(safeOriginalName);
-    const storedName = `${crypto.randomUUID()}${ext}`;
-    const filePath = path.join(uploadDir, storedName);
+    const objectName = `${crypto.randomUUID()}${ext}`;
 
+    let fileSize = 0;
     try {
-      await pipeline(data.file, fs.createWriteStream(filePath));
+      const uploadInfo = await minioClient.putObject(
+        MINIO_BUCKET,
+        objectName,
+        data.file,
+        undefined,
+        { 'Content-Type': data.mimetype },
+      );
+      // putObject resolves after stream ends; get size via stat
+      const stat = await minioClient.statObject(MINIO_BUCKET, objectName);
+      fileSize = stat.size;
+      void uploadInfo; // etag available if needed
     } catch (err) {
-      // Clean up partial file on write failure
-      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      // Best-effort cleanup on partial upload
+      minioClient.removeObject(MINIO_BUCKET, objectName).catch(() => {});
       throw err;
     }
 
-    const stats = fs.statSync(filePath);
-
-    // Guard: reject if file exceeds size limit (double-check after write)
-    if (stats.size > MAX_FILE_SIZE_BYTES) {
-      fs.unlinkSync(filePath);
+    if (fileSize > MAX_FILE_SIZE_BYTES) {
+      minioClient.removeObject(MINIO_BUCKET, objectName).catch(() => {});
       return reply.code(413).send({ error: 'File too large' });
     }
 
     return reply.send({
-      url: `/uploads/${storedName}`,
+      url: `/uploads/${objectName}`,
       type: getAttachmentType(data.mimetype),
       fileName: safeOriginalName,
-      fileSize: stats.size,
+      fileSize,
       mimeType: data.mimetype,
     });
   });

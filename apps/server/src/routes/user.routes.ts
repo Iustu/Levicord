@@ -8,9 +8,11 @@ export default async function userRoutes(fastify: FastifyInstance) {
   // (Engenharia de Software — DRY)
   fastify.addHook('onRequest', requireAuth);
 
-  fastify.get('/', async (request) => {
+  fastify.get<{ Querystring: { limit?: number; cursor?: string } }>('/', async (request) => {
     const userId = getAuthUserId(request);
-    return getUsers(userId);
+    const limit = Math.min(Number(request.query.limit ?? 100), 200);
+    const { cursor } = request.query;
+    return getUsers(userId, limit, cursor);
   });
 
   fastify.get<{ Params: { id: string }; Querystring: { cursor?: string } }>(

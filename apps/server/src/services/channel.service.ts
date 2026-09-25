@@ -1,9 +1,11 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../prisma';
 
-export async function getChannels() {
+export async function getChannels(limit = 100, offset = 0) {
   return prisma.channel.findMany({
     orderBy: { order: 'asc' },
+    take: limit,
+    skip: offset,
   });
 }
 

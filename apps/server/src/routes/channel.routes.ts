@@ -8,8 +8,10 @@ export default async function channelRoutes(fastify: FastifyInstance) {
   // (Engenharia de Software — DRY, Extract Function)
   fastify.addHook('onRequest', requireAuth);
 
-  fastify.get('/', async () => {
-    return getChannels();
+  fastify.get<{ Querystring: { limit?: number; offset?: number } }>('/', async (request) => {
+    const limit = Math.min(Number(request.query.limit ?? 100), 200);
+    const offset = Number(request.query.offset ?? 0);
+    return getChannels(limit, offset);
   });
 
   const createChannelSchema = {

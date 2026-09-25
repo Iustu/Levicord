@@ -116,8 +116,8 @@ export default function MainApp() {
   // ── Fetch users for DMs ────────────────────────────────────────────────────
   useEffect(() => {
     if (!token || viewMode !== 'dms') return;
-    apiFetch<User[]>('/api/users', token)
-      .then(setUsers)
+    apiFetch<{ users: User[]; nextCursor: string | null }>('/api/users', token)
+      .then(({ users }) => setUsers(users))
       .catch(console.error);
   }, [token, viewMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
