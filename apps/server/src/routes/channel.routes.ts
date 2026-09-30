@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { getChannels, createChannel, updateChannel, getChannelMessages } from '../services/channel.service';
+import { getChannels, createChannel, updateChannel, getChannelMessages, canAccessChannel, searchMessages } from '../services/channel.service';
 import { isAdmin } from '../services/auth.service';
 import { requireAuth, getAuthUserId } from '../lib/auth';
 
@@ -11,7 +11,9 @@ export default async function channelRoutes(fastify: FastifyInstance) {
   fastify.get<{ Querystring: { limit?: number; offset?: number } }>('/', async (request) => {
     const limit = Math.min(Number(request.query.limit ?? 100), 200);
     const offset = Number(request.query.offset ?? 0);
-    return getChannels(limit, offset);
+    const userId = getAuthUserId(request);
+    const userIsAdmin = await isAdmin(userId);
+    return getChannels(userId, userIsAdmin, limit, offset);
   });
 
   const createChannelSchema = {
@@ -22,6 +24,7 @@ export default async function channelRoutes(fastify: FastifyInstance) {
         name: { type: 'string', minLength: 2, maxLength: 32, pattern: '^[a-z0-9-]+$' },
         description: { type: 'string', maxLength: 200 },
         type: { type: 'string', enum: ['TEXT', 'VOICE'] },
+        isPrivate: { type: 'boolean' },
       },
     },
   };
@@ -29,16 +32,17 @@ export default async function channelRoutes(fastify: FastifyInstance) {
   const requireAdmin = async (request: Parameters<typeof requireAuth>[0], reply: Parameters<typeof requireAuth>[1]) => {
     const userId = getAuthUserId(request);
     if (!(await isAdmin(userId))) {
+      request.log.warn({ event: 'admin_access_denied', userId, ip: request.ip }, 'Administrator access denied');
       return reply.code(403).send({ message: 'Administrator permissions required' });
     }
   };
 
-  fastify.post<{ Body: { name: string; description?: string; type?: 'TEXT' | 'VOICE' } }>(
+  fastify.post<{ Body: { name: string; description?: string; type?: 'TEXT' | 'VOICE'; isPrivate?: boolean } }>(
     '/',
     { schema: createChannelSchema, preHandler: requireAdmin },
     async (request, reply) => {
-      const { name, description, type } = request.body;
-      const channel = await createChannel(name, description, type);
+      const { name, description, type, isPrivate } = request.body;
+      const channel = await createChannel(name, description, type, isPrivate);
       return reply.code(201).send(channel);
     },
   );
@@ -61,11 +65,34 @@ export default async function channelRoutes(fastify: FastifyInstance) {
     },
   );
 
+  fastify.get<{ Params: { id: string }; Querystring: { q: string } }>(
+    '/:id/messages/search',
+    async (request, reply) => {
+      const { id } = request.params;
+      const { q } = request.query;
+      if (!q || q.trim().length < 2) {
+        return reply.code(400).send({ message: 'Query must be at least 2 characters' });
+      }
+      const userId = getAuthUserId(request);
+      if (!(await canAccessChannel(id, userId, await isAdmin(userId)))) {
+        return reply.code(403).send({ message: 'Access denied' });
+      }
+      return searchMessages(id, q.trim());
+    },
+  );
+
   fastify.get<{ Params: { id: string }; Querystring: { cursor?: string } }>(
     '/:id/messages',
-    async (request) => {
+    async (request, reply) => {
       const { id } = request.params;
       const { cursor } = request.query;
+      const userId = getAuthUserId(request);
+
+      if (!(await canAccessChannel(id, userId, await isAdmin(userId)))) {
+        request.log.warn({ event: 'channel_access_denied', userId, channelId: id, ip: request.ip }, 'Access denied to private channel messages');
+        return reply.code(403).send({ message: 'Access denied' });
+      }
+
       const result = await getChannelMessages(id, 50, cursor);
       // Reverse because we query descending (newest first) but UI renders oldest to newest.
       return { ...result, messages: result.messages.reverse() };

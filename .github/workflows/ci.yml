@@ -40,8 +40,46 @@ jobs:
     - name: Run Tests
       run: pnpm --filter server test && pnpm --filter web test
 
-    - name: Type Check
-      run: pnpm typecheck
+    - name: Type Check (SAST)
+      run: pnpm --filter server exec tsc --noEmit && pnpm --filter web exec tsc --noEmit
+
+    - name: Dependency Audit
+      run: pnpm audit --audit-level high
+
+  sast-semgrep:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Semgrep SAST
+      uses: returntocorp/semgrep-action@v1
+      with:
+        config: "p/typescript"
+        failOnHigh: true
+
+  container-scanning:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build server image
+      run: docker build -t levicord-server:latest -f apps/server/Dockerfile .
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: 'levicord-server:latest'
+        format: 'table'
+        exit-code: '1'
+        ignore-unfixed: true
+        vuln-type: 'os,library'
+        severity: 'CRITICAL'
+
+  dast:
+    runs-on: ubuntu-latest
+    steps:
+    - name: OWASP ZAP Full Scan against Staging
+      uses: zaproxy/action-full-scan@v0.12.0
+      with:
+        target: 'https://staging.levicord.local' # Placeholder for actual staging URL
+        fail_action: false # Do not fail the build until baseline is established
 
     - name: Dependency Audit
       run: pnpm audit --audit-level high
@@ -60,3 +98,22 @@ jobs:
         base: ${{ github.event.repository.default_branch }}
         head: HEAD
         extra_args: --only-verified
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [build-and-test, sast-semgrep, container-scanning, secret-scan]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production
+    steps:
+    - name: Deploy via SSH
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.DEPLOY_HOST }}
+        username: ${{ secrets.DEPLOY_USER }}
+        key: ${{ secrets.DEPLOY_SSH_KEY }}
+        script: |
+          cd ${{ secrets.DEPLOY_PATH }}
+          git pull origin main
+          docker compose pull
+          docker compose up -d --remove-orphans
+          docker compose exec -T server sh -c "npx prisma migrate deploy"

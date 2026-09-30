@@ -26,6 +26,7 @@ model User {
   role        UserRole  @default(USER)
   createdAt   DateTime  @default(now())
   messages    Message[]
+  channelMembers ChannelMember[]
   dmsSent     DirectMessage[] @relation("sender")
   dmsReceived DirectMessage[] @relation("receiver")
 }
@@ -36,7 +37,21 @@ model Channel {
   description String?
   type        ChannelType @default(TEXT)
   order       Int       @default(0)
+  isPrivate   Boolean   @default(false)
   messages    Message[]
+  members     ChannelMember[]
+}
+
+model ChannelMember {
+  id        String   @id @default(cuid())
+  userId    String
+  channelId String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id])
+  channel   Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, channelId])
 }
 
 model Message {

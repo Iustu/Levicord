@@ -98,6 +98,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
       };
 
       const user = await processGoogleUser(userInfo);
+      request.log.info({ event: 'auth_success', userId: user.id, provider: 'google' }, 'User logged in successfully');
 
       const accessToken = await reply.jwtSign({ sub: user.id }, { expiresIn: '15m' });
       const refreshToken = await reply.jwtSign({ sub: user.id }, { expiresIn: '7d' });

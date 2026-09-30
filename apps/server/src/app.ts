@@ -14,6 +14,7 @@ import uploadRoutes from './routes/upload.routes';
 import downloadRoutes from './routes/download.routes';
 import { prisma } from './prisma';
 import { redis } from './socket';
+import { checkMinioHealth } from './lib/minio';
 
 // Load environment variables
 import 'dotenv/config';
@@ -112,16 +113,26 @@ export function buildApp(): FastifyInstance {
   });
 
   app.get('/readyz', async (_request, reply) => {
-    try {
-      await Promise.all([
-        prisma.$queryRaw`SELECT 1`,
-        redis.ping(),
-      ]);
-      return { status: 'ready' };
-    } catch (error) {
-      app.log.error(error, 'Readiness check failed');
-      return reply.code(503).send({ status: 'not_ready' });
+    const results = await Promise.allSettled([
+      prisma.$queryRaw`SELECT 1`,
+      redis.ping(),
+      checkMinioHealth(),
+    ]);
+
+    const [dbResult, redisResult, minioResult] = results;
+    const degraded: string[] = [];
+
+    if (dbResult.status === 'rejected') degraded.push('postgres');
+    if (redisResult.status === 'rejected') degraded.push('redis');
+    if (minioResult.status === 'fulfilled' && minioResult.value === false) degraded.push('minio');
+    if (minioResult.status === 'rejected') degraded.push('minio');
+
+    if (degraded.length > 0) {
+      app.log.error({ degraded }, 'Readiness check failed');
+      return reply.code(503).send({ status: 'not_ready', degraded });
     }
+
+    return { status: 'ready' };
   });
 
   app.get('/', async () => ({ status: 'ok' }));

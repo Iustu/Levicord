@@ -18,6 +18,7 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply):
   try {
     await request.jwtVerify();
   } catch (err) {
+    request.log.warn({ event: 'auth_failure', ip: request.ip, error: err }, 'Authentication failed');
     reply.send(err);
   }
 }

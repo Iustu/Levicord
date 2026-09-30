@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Hash, Plus, Pencil, MessageCircle, Volume2 } from 'lucide-react';
+import { Hash, Plus, Pencil, MessageCircle, Volume2, Search, X, Menu } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useChatStore } from '../stores/useChatStore';
 import { useSocket } from '../hooks/useSocket';
@@ -88,6 +88,33 @@ export default function MainApp() {
   const [channelsRetryKey, setChannelsRetryKey] = useState(0);
 
   const [activeVoiceChannelId, setActiveVoiceChannelId] = useState<string | null>(null);
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<Message[] | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleSearchChange = useCallback((q: string) => {
+    setSearchQuery(q);
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    if (!q.trim() || q.trim().length < 2) { setSearchResults(null); return; }
+    searchDebounceRef.current = setTimeout(async () => {
+      if (!token || !activeChannelId) return;
+      setIsSearching(true);
+      try {
+        const results = await apiFetch<Message[]>(
+          `/api/channels/${activeChannelId}/messages/search?q=${encodeURIComponent(q.trim())}`,
+          token,
+        );
+        setSearchResults(results);
+      } catch { setSearchResults([]); }
+      finally { setIsSearching(false); }
+    }, 350);
+  }, [token, activeChannelId]);
+
+  const clearSearch = () => { setSearchQuery(''); setSearchResults(null); };
+
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const messagesListRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -268,8 +295,14 @@ export default function MainApp() {
 
   return (
     <div className="app-container">
+      {/* ── Sidebar overlay (mobile) ──────────────────────────────────── */}
+      <div
+        className={`sidebar-overlay ${sidebarOpen ? 'visible' : ''}`}
+        onClick={() => setSidebarOpen(false)}
+        aria-hidden="true"
+      />
       {/* ── Sidebar ────────────────────────────────────────────────────── */}
-      <div className="sidebar">
+      <div className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}>
         <div className="sidebar-header"><h3>Levicord</h3></div>
 
         <div className="view-toggle">
@@ -362,6 +395,9 @@ export default function MainApp() {
         {hasActiveConversation ? (
           <>
             <div className="chat-header">
+              <button className="sidebar-toggle" onClick={() => setSidebarOpen((o) => !o)} aria-label="Abrir menu">
+                <Menu size={20} />
+              </button>
               {viewMode === 'channels' ? (
                 <>
                   {isVoiceChannel
@@ -380,7 +416,53 @@ export default function MainApp() {
                   <div><h3>{activeDmUser?.displayName}</h3></div>
                 </>
               )}
+              {viewMode === 'channels' && !isVoiceChannel && (
+                <div className="chat-search">
+                  <Search size={14} className="chat-search-icon" aria-hidden="true" />
+                  <input
+                    className="chat-search-input"
+                    type="search"
+                    placeholder="Buscar mensagens..."
+                    aria-label="Buscar mensagens no canal"
+                    value={searchQuery}
+                    onChange={(e) => handleSearchChange(e.target.value)}
+                  />
+                  {searchQuery && (
+                    <button className="chat-search-clear" onClick={clearSearch} aria-label="Limpar busca">
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
+            {searchResults !== null && (
+              <div className="search-results" role="region" aria-label="Resultados da busca">
+                <div className="search-results-header">
+                  {isSearching ? 'Buscando...' : `${searchResults.length} resultado${searchResults.length !== 1 ? 's' : ''} para "${searchQuery}"`}
+                  <button onClick={clearSearch} className="search-results-close">Fechar</button>
+                </div>
+                {!isSearching && searchResults.length === 0 && (
+                  <p className="search-results-empty">Nenhuma mensagem encontrada.</p>
+                )}
+                <ul className="search-results-list">
+                  {searchResults.map((msg) => (
+                    <li key={msg.id} className="search-result-item">
+                      <img
+                        src={msg.author.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${msg.author.displayName}`}
+                        className="avatar"
+                        alt=""
+                        loading="lazy"
+                      />
+                      <div>
+                        <span className="author-name">{msg.author.displayName}</span>
+                        <span className="timestamp">{new Date(msg.createdAt).toLocaleString('pt-BR')}</span>
+                        <p className="text">{msg.content}</p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {isVoiceChannel ? (
               <VoiceScreen

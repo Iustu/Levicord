@@ -1,6 +1,8 @@
-import { prisma } from '../prisma';
+import sanitizeHtml from 'sanitize-html';
+import { prisma as defaultPrisma } from '../prisma';
+import type { PrismaClient } from '@prisma/client';
 
-export async function getDirectMessages(userId1: string, userId2: string, limit = 50, cursor?: string) {
+export async function getDirectMessages(userId1: string, userId2: string, limit = 50, cursor?: string, prisma: PrismaClient = defaultPrisma) {
   return prisma.directMessage.findMany({
     where: {
       OR: [
@@ -20,10 +22,10 @@ export async function getDirectMessages(userId1: string, userId2: string, limit 
   });
 }
 
-export async function createDirectMessage(content: string | null, senderId: string, receiverId: string, attachments?: { url: string; type: 'image'|'video'|'file'; fileName: string; fileSize: number; mimeType: string }[]) {
+export async function createDirectMessage(content: string | null, senderId: string, receiverId: string, attachments?: { url: string; type: 'image'|'video'|'file'; fileName: string; fileSize: number; mimeType: string }[], prisma: PrismaClient = defaultPrisma) {
   return prisma.directMessage.create({
     data: {
-      content,
+      content: content ? sanitizeHtml(content) : null,
       senderId,
       receiverId,
       ...(attachments && attachments.length > 0 ? {

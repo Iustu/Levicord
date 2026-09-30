@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import path from 'path';
 import crypto from 'crypto';
-import { requireAuth } from '../lib/auth';
+import { requireAuth, getAuthUserId } from '../lib/auth';
 import { minioClient, MINIO_BUCKET } from '../lib/minio';
 
 const ALLOWED_MIME_TYPES = new Set([
@@ -37,6 +37,7 @@ export default async function uploadRoutes(fastify: FastifyInstance) {
     }
 
     if (!ALLOWED_MIME_TYPES.has(data.mimetype)) {
+      request.log.warn({ event: 'upload_rejected_mime', userId: getAuthUserId(request), ip: request.ip, mimeType: data.mimetype }, 'File upload rejected due to invalid MIME type');
       return reply.code(415).send({ error: 'File type not allowed' });
     }
 
@@ -53,20 +54,22 @@ export default async function uploadRoutes(fastify: FastifyInstance) {
         undefined,
         { 'Content-Type': data.mimetype },
       );
-      // putObject resolves after stream ends; get size via stat
       const stat = await minioClient.statObject(MINIO_BUCKET, objectName);
       fileSize = stat.size;
-      void uploadInfo; // etag available if needed
+      void uploadInfo;
     } catch (err) {
-      // Best-effort cleanup on partial upload
       minioClient.removeObject(MINIO_BUCKET, objectName).catch(() => {});
-      throw err;
+      request.log.error({ event: 'upload_storage_error', userId: getAuthUserId(request), ip: request.ip, err }, 'MinIO unavailable during upload');
+      return reply.code(503).send({ error: 'Storage service unavailable. Try again later.' });
     }
 
     if (fileSize > MAX_FILE_SIZE_BYTES) {
+      request.log.warn({ event: 'upload_rejected_size', userId: getAuthUserId(request), ip: request.ip, fileSize }, 'File upload rejected due to size limit');
       minioClient.removeObject(MINIO_BUCKET, objectName).catch(() => {});
       return reply.code(413).send({ error: 'File too large' });
     }
+
+    request.log.info({ event: 'upload_success', userId: getAuthUserId(request), fileName: safeOriginalName, fileSize, mimeType: data.mimetype }, 'File uploaded successfully');
 
     return reply.send({
       url: `/uploads/${objectName}`,

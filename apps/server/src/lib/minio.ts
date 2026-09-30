@@ -16,9 +16,40 @@ export const minioClient = new Client({
   secretKey: MINIO_SECRET_KEY,
 });
 
-export async function ensureBucket() {
-  const exists = await minioClient.bucketExists(MINIO_BUCKET);
-  if (!exists) {
-    await minioClient.makeBucket(MINIO_BUCKET);
+async function withRetry<T>(fn: () => Promise<T>, maxAttempts = 3, baseDelayMs = 200): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      if (attempt < maxAttempts - 1) {
+        await new Promise((r) => setTimeout(r, baseDelayMs * 2 ** attempt));
+      }
+    }
+  }
+  throw lastError;
+}
+
+export async function ensureBucket(): Promise<void> {
+  try {
+    await withRetry(async () => {
+      const exists = await minioClient.bucketExists(MINIO_BUCKET);
+      if (!exists) {
+        await minioClient.makeBucket(MINIO_BUCKET);
+      }
+    });
+  } catch (err) {
+    // MinIO unavailable — non-fatal at startup; uploads will fail with 503 until recovered
+    console.error('[minio] ensureBucket failed after retries:', err);
+  }
+}
+
+export async function checkMinioHealth(): Promise<boolean> {
+  try {
+    await withRetry(() => minioClient.bucketExists(MINIO_BUCKET), 2, 100);
+    return true;
+  } catch {
+    return false;
   }
 }

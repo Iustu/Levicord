@@ -1,6 +1,7 @@
-import { prisma } from '../prisma';
+import { prisma as defaultPrisma } from '../prisma';
+import type { PrismaClient } from '@prisma/client';
 
-export async function getUsers(excludeUserId?: string, limit = 100, cursor?: string) {
+export async function getUsers(excludeUserId?: string, limit = 100, cursor?: string, prisma: PrismaClient = defaultPrisma) {
   const users = await prisma.user.findMany({
     where: excludeUserId ? { id: { not: excludeUserId } } : undefined,
     select: { id: true, displayName: true, avatarUrl: true },

@@ -12,8 +12,7 @@ export function useSocketConnection() {
     if (!token) return;
 
     const newSocket = io(API_BASE, {
-      ...(token !== '__cookie__' ? { auth: { token } } : {}),
-      withCredentials: true,
+      withCredentials: true, // forwards httpOnly auth cookie
     });
 
     socketRef.current = newSocket;

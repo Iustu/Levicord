@@ -27,6 +27,7 @@ interface ChatState {
   users: User[]; // Users available for DM
   activeChannelId: string | null;
   activeDmUserId: string | null;
+  currentUserId: string | null; // ID of the authenticated user
   messages: Message[];
   dms: Record<string, DirectMessage[]>; // Key is the other user's ID
   dmsOrder: string[]; // LRU order — most recently accessed first
@@ -36,6 +37,7 @@ interface ChatState {
   setUsers: (users: User[]) => void;
   setActiveChannelId: (id: string) => void;
   setActiveDmUserId: (id: string) => void;
+  setCurrentUserId: (id: string) => void;
   setMessages: (messages: Message[]) => void;
   setDms: (userId: string, messages: DirectMessage[]) => void;
   prependMessages: (messages: Message[]) => void;
@@ -49,6 +51,7 @@ export const useChatStore = create<ChatState>((set) => ({
   users: [],
   activeChannelId: null,
   activeDmUserId: null,
+  currentUserId: null,
   messages: [],
   dms: {},
   dmsOrder: [],
@@ -57,6 +60,7 @@ export const useChatStore = create<ChatState>((set) => ({
   setUsers: (users) => set({ users }),
   setActiveChannelId: (id) => set({ activeChannelId: id }),
   setActiveDmUserId: (id) => set({ activeDmUserId: id }),
+  setCurrentUserId: (id) => set({ currentUserId: id }),
   setMessages: (messages) => set({ messages }),
   setDms: (userId, messages) => set((state) => {
     const updated = { ...state.dms, [userId]: messages };

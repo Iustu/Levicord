@@ -1,5 +1,7 @@
-import { prisma } from '../prisma';
-import { redis } from '../lib/redis';
+import { prisma as defaultPrisma } from '../prisma';
+import { redis as defaultRedis } from '../lib/redis';
+import type { PrismaClient } from '@prisma/client';
+import type { Redis } from 'ioredis';
 
 function configuredAdminEmails() {
   return new Set((process.env.ADMIN_EMAILS || '').split(',').map((email) => email.trim().toLowerCase()).filter(Boolean));
@@ -12,7 +14,7 @@ export interface GoogleUserInfo {
   picture: string;
 }
 
-export async function processGoogleUser(userInfo: GoogleUserInfo) {
+export async function processGoogleUser(userInfo: GoogleUserInfo, prisma: PrismaClient = defaultPrisma) {
   if (!userInfo.email) {
     throw new Error('Failed to get user email from Google');
   }
@@ -39,7 +41,7 @@ export async function processGoogleUser(userInfo: GoogleUserInfo) {
 
 const ADMIN_CACHE_TTL = 60; // seconds
 
-export async function isAdmin(userId: string) {
+export async function isAdmin(userId: string, prisma: PrismaClient = defaultPrisma, redis: Redis = defaultRedis) {
   const cacheKey = `admin:${userId}`;
   const cached = await redis.get(cacheKey);
   if (cached !== null) return cached === '1';
@@ -53,7 +55,7 @@ export async function isAdmin(userId: string) {
   return result;
 }
 
-export async function updateUserProfile(userId: string, displayName: string) {
+export async function updateUserProfile(userId: string, displayName: string, prisma: PrismaClient = defaultPrisma) {
   return prisma.user.update({
     where: { id: userId },
     data: { displayName },

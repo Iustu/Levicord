@@ -1,6 +1,7 @@
 import type { Server, Socket } from 'socket.io';
 import { z } from 'zod';
-import { createMessage } from '../services/channel.service';
+import { createMessage, canAccessChannel } from '../services/channel.service';
+import { isAdmin } from '../services/auth.service';
 import { checkRateLimit, redis } from '../lib/redis';
 
 const attachmentSchema = z.object({
@@ -28,11 +29,18 @@ const MESSAGE_WINDOW_SECONDS = 60;
  * (Engenharia de Software — SRP: each handler file owns one domain)
  */
 export function registerMessageHandler(io: Server, socket: Socket, userId: string, log: { error: (...args: unknown[]) => void }) {
-  socket.on('join_channel', (channelId: string) => {
+  socket.on('join_channel', async (channelId: string) => {
     if (!z.string().cuid().safeParse(channelId).success) {
       socket.emit('error', { message: 'Invalid channel ID' });
       return;
     }
+
+    if (!(await canAccessChannel(channelId, userId, await isAdmin(userId)))) {
+      log.error({ event: 'socket_access_denied', userId, channelId }, 'User attempted to join private channel without access');
+      socket.emit('error', { message: 'Access denied to this channel' });
+      return;
+    }
+
     const previousChannelId = socket.data.channelId as string | undefined;
     if (previousChannelId && previousChannelId !== channelId) {
       socket.leave(previousChannelId);
