@@ -1,19 +1,99 @@
 # Manual de Deploy — Levicord
 
-Passo a passo para subir a aplicação do zero em qualquer máquina com Docker e tunel Cloudflare.
+Guia completo para implantar a aplicação num servidor novo usando **Docker no WSL2**,
+do zero ao funcionamento em produção, com um único script automático.
 
 ---
 
-## Pré-requisitos
+## Sumario Rapido
 
-| Ferramenta | Versão mínima | Verificar |
-|------------|---------------|-----------|
-| Docker Engine | 24+ | `docker --version` |
-| Docker Compose | v2 (plugin) | `docker compose version` |
-| Git | qualquer | `git --version` |
-| Conta Cloudflare | — | com domínio configurado |
+| Passo | O que fazer |
+|-------|-------------|
+| 1 | Instalar WSL2 e Docker no servidor |
+| 2 | Clonar o repositório |
+| 3 | Configurar Google OAuth |
+| 4 | Configurar Cloudflare Tunnel |
+| 5 | Executar `bash setup.sh` — faz tudo automaticamente |
+| 6 | Verificar saúde dos containers |
 
-Não é necessário Node.js, pnpm nem nenhuma dependência local — tudo roda dentro de container.
+---
+
+## Pre-requisitos do servidor
+
+O servidor precisa ser Ubuntu 22.04+ (físico, VPS, ou VM).
+Em Windows com WSL2, o ambiente Ubuntu dentro do WSL serve como o servidor.
+
+### Instalar Docker no Ubuntu/WSL2
+
+Execute os comandos abaixo dentro do terminal WSL/Ubuntu:
+
+```bash
+# Remover versões antigas
+sudo apt remove -y docker docker-engine docker.io containerd runc 2>/dev/null || true
+
+# Instalar dependências
+sudo apt update
+sudo apt install -y ca-certificates curl gnupg lsb-release
+
+# Adicionar chave GPG oficial do Docker
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+  | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+# Adicionar repositório
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+  https://download.docker.com/linux/ubuntu \
+  $(lsb_release -cs) stable" \
+  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+# Instalar Docker Engine + Compose plugin
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io \
+  docker-buildx-plugin docker-compose-plugin
+
+# Permitir usar Docker sem sudo (fazer logout e login novamente após este passo)
+sudo usermod -aG docker $USER
+
+# Verificar
+docker --version
+docker compose version
+```
+
+> **WSL2 especifico**: o Docker no WSL2 usa o daemon do Windows (Docker Desktop) ou
+> o daemon nativo do WSL. Se usar Docker Desktop, certifique-se de que
+> "Enable integration with my default WSL distro" esta ativo nas configuracoes.
+
+### Instalar Git e openssl
+
+```bash
+sudo apt install -y git openssl curl
+```
+
+---
+
+## Estrutura de servicos
+
+```
+Internet
+    |
+Cloudflare CDN + HTTPS (certificado automatico)
+    |
+cloudflared (tunnel — container Docker)
+    |--- web:80          → React (nginx)
+    |--- server:3000     → Fastify API
+                |
+        ┌───────┼───────┐
+   postgres  redis    minio
+   :5432     :6379    :9000
+        |
+   prometheus:9090 ← scrape ← server/metrics
+   grafana:3001    ← datasource ← prometheus
+```
+
+Todos os servicos correm em containers Docker isolados.
+O Cloudflare Tunnel expoe a aplicacao publicamente sem abrir portas no firewall.
 
 ---
 
@@ -26,49 +106,7 @@ cd levicord
 
 ---
 
-## 2. Criar o arquivo `.env`
-
-Crie `.env` na raiz do projeto. **Nunca commitar este arquivo.**
-
-```env
-# ─── Banco de dados ───────────────────────────────────────────
-POSTGRES_PASSWORD=senha_forte_aqui
-
-# ─── Autenticação JWT ─────────────────────────────────────────
-# Gerar com: openssl rand -hex 64
-JWT_SECRET=gere_uma_string_aleatoria_longa_aqui
-
-# ─── Google OAuth ─────────────────────────────────────────────
-# Criar em: https://console.cloud.google.com → APIs → Credentials → OAuth 2.0 Client IDs
-GOOGLE_CLIENT_ID=seu_client_id.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=seu_client_secret
-
-# ─── Admin ────────────────────────────────────────────────────
-# Emails separados por vírgula. Esses usuários viram ADMIN automaticamente no primeiro login.
-ADMIN_EMAILS=seu@email.com,outro@email.com
-
-# ─── MinIO (armazenamento de arquivos) ────────────────────────
-MINIO_ACCESS_KEY=usuario_minio_forte
-MINIO_SECRET_KEY=senha_minio_forte_minimo_8_chars
-MINIO_BUCKET=discord-uploads
-
-# ─── Cloudflare Tunnel ────────────────────────────────────────
-# Ver seção 4 abaixo para obter este token
-CLOUDFLARED_TOKEN=seu_tunnel_token_aqui
-
-# ─── Grafana ──────────────────────────────────────────────────
-GRAFANA_PASSWORD=senha_grafana
-```
-
-### Gerar JWT_SECRET seguro
-
-```bash
-openssl rand -hex 64
-```
-
----
-
-## 3. Configurar Google OAuth
+## 2. Configurar Google OAuth (uma unica vez)
 
 1. Acesse [console.cloud.google.com](https://console.cloud.google.com)
 2. Crie um projeto (ou use existente)
@@ -78,121 +116,116 @@ openssl rand -hex 64
    ```
    https://SEU_DOMINIO/api/auth/google/callback
    ```
-6. Copiar `Client ID` e `Client Secret` para o `.env`
+6. Copiar `Client ID` e `Client Secret` — serão pedidos pelo `setup.sh`
 
 ---
 
-## 4. Configurar Cloudflare Tunnel
+## 3. Configurar Cloudflare Tunnel (uma unica vez)
 
-### 4.1 Criar o tunnel (uma única vez)
+O tunnel permite acesso HTTPS público sem abrir portas no firewall.
 
-No [Cloudflare Zero Trust Dashboard](https://one.dash.cloudflare.com):
-
-1. **Networks → Tunnels → Create a tunnel**
-2. Nome: `levicord` (ou qualquer nome)
-3. Connector: **Docker**
-4. Cloudflare vai exibir o comando com o token — copiar apenas o token:
+1. Acesse [one.dash.cloudflare.com](https://one.dash.cloudflare.com)
+2. **Networks → Tunnels → Create a tunnel**
+3. Nome: `levicord`
+4. Connector: **Docker**
+5. Cloudflare exibe um comando como:
    ```
-   docker run cloudflare/cloudflared:latest tunnel --no-autoupdate run --token <TOKEN_AQUI>
+   docker run cloudflare/cloudflared:latest tunnel --no-autoupdate run --token TOKEN_AQUI
    ```
-5. Colar o token em `CLOUDFLARED_TOKEN` no `.env`
+6. Copiar apenas o `TOKEN_AQUI` — será pedido pelo `setup.sh`
 
-### 4.2 Configurar as rotas públicas
+### Rotas do tunnel
 
-Ainda no dashboard, aba **Public Hostname** do tunnel, adicionar:
+Na aba **Public Hostname** do tunnel, adicionar:
 
-| Subdomínio | Serviço |
-|------------|---------|
-| `levicord.uk` (ou seu domínio) | `http://web:80` |
+| Subdomínio/Path | Serviço interno |
+|-----------------|-----------------|
+| `levicord.uk` (raiz) | `http://web:80` |
 | `levicord.uk/api` | `http://server:3000` |
 
-> O Cloudflare cuida do HTTPS automaticamente. Não é necessário configurar certificados.
-
-### 4.3 Atualizar URLs no docker-compose.yml
-
-Se o domínio for diferente de `levicord.uk`, editar estas linhas em `docker-compose.yml`:
-
-```yaml
-server:
-  environment:
-    FRONTEND_URL: https://SEU_DOMINIO
-    OAUTH_CALLBACK_URL: https://SEU_DOMINIO/api/auth/google/callback
-
-web:
-  build:
-    args:
-      VITE_API_URL: https://SEU_DOMINIO
-```
+> O Cloudflare cuida do HTTPS automaticamente. Sem certificados para gerir.
 
 ---
 
-## 5. Subir a aplicação
+## 4. Executar o setup automatico
+
+O script `setup.sh` faz tudo de uma vez:
+
+- Verifica se Docker e Git estao instalados
+- Gera `JWT_SECRET`, `DATABASE_ENCRYPTION_KEY` e senhas de forma criptograficamente segura
+- Cria o `.env` interativamente (pede apenas o que nao pode ser gerado automaticamente)
+- Corrige o `docker-compose.yml` para usar as variaveis do `.env`
+- Define `NODE_ENV=production`
+- Faz `docker compose up -d --build`
+- Aguarda os healthchecks de Postgres, Redis e MinIO
+- Roda as migrations do Prisma automaticamente
+- Exibe o resumo com todas as URLs
 
 ```bash
-# Build e start de todos os containers
-docker compose up -d --build
+# Na raiz do projeto:
+bash setup.sh
 ```
 
-Aguardar todos os serviços ficarem healthy (~60s na primeira vez):
+O script vai pedir interativamente apenas:
+
+| Campo | Por que precisa ser manual |
+|-------|--------------------------|
+| `DOMAIN` | Seu dominio publico (ex: levicord.uk) |
+| `GOOGLE_CLIENT_ID` | Obtido no Google Console |
+| `GOOGLE_CLIENT_SECRET` | Obtido no Google Console |
+| `ADMIN_EMAILS` | Decisao sua quais emails sao admin |
+| `CLOUDFLARED_TOKEN` | Obtido no Cloudflare Dashboard |
+
+Todo o resto (JWT_SECRET, DATABASE_ENCRYPTION_KEY, POSTGRES_PASSWORD, MINIO_ACCESS_KEY,
+MINIO_SECRET_KEY, GRAFANA_PASSWORD) e **gerado automaticamente** com openssl.
+
+---
+
+## 5. Verificar que esta funcionando
 
 ```bash
+# Estado dos containers (todos devem estar Up)
 docker compose ps
-```
 
-Saída esperada — todos com `(healthy)` ou `Up`:
-
-```
-discord_postgres    Up (healthy)
-discord_redis       Up (healthy)
-discord_minio       Up (healthy)
-discord_server      Up
-discord_web         Up
-discord_cloudflared Up
-discord_prometheus  Up
-discord_grafana     Up
-```
-
----
-
-## 6. Verificar que está funcionando
-
-```bash
-# Health do servidor
+# Health da API
 curl http://localhost:3000/livez
 # → {"status":"ok"}
 
 curl http://localhost:3000/readyz
-# → {"status":"ok"} (confirma Postgres + Redis conectados)
+# → {"status":"ready"}   (confirma Postgres + Redis + MinIO conectados)
 
 # Logs em tempo real
 docker compose logs -f server
 docker compose logs -f cloudflared
 ```
 
-Acesso via browser:
+Saida esperada do `docker compose ps`:
 
-| URL | Serviço |
+```
+NAME                 STATUS
+discord_postgres     Up (healthy)
+discord_redis        Up (healthy)
+discord_minio        Up (healthy)
+discord_server       Up
+discord_web          Up
+discord_cloudflared  Up
+discord_prometheus   Up
+discord_grafana      Up
+```
+
+### URLs de acesso
+
+| URL | Servico |
 |-----|---------|
-| `https://SEU_DOMINIO` | App principal |
-| `http://localhost:9001` | MinIO Console (gerenciar arquivos) |
-| `http://localhost:9090` | Prometheus |
+| `https://SEU_DOMINIO` | App principal (via Cloudflare) |
+| `http://localhost:3000/api/docs` | Swagger UI da API |
+| `http://localhost:9001` | MinIO Console (gerir ficheiros) |
+| `http://localhost:9090` | Prometheus (metricas) |
 | `http://localhost:3001` | Grafana (user: `admin`, senha: `GRAFANA_PASSWORD` do `.env`) |
 
 ---
 
-## 7. Primeira execução — migração do banco
-
-Na primeira vez (ou após atualizar o schema Prisma), rodar as migrations:
-
-```bash
-docker compose exec server pnpm exec prisma migrate deploy
-```
-
-> `migrate deploy` aplica migrations pendentes sem interação. Não usar `migrate dev` em produção.
-
----
-
-## 8. Atualizar a aplicação
+## 6. Atualizar a aplicacao
 
 ```bash
 git pull
@@ -200,22 +233,28 @@ docker compose up -d --build
 docker compose exec server pnpm exec prisma migrate deploy
 ```
 
+> `migrate deploy` aplica migrations pendentes sem interacao. Nunca usar `migrate dev` em producao.
+
 ---
 
-## 9. Comandos úteis
+## 7. Comandos uteis
 
 ```bash
-# Ver logs de um serviço específico
+# Ver logs de um servico
 docker compose logs -f server
 docker compose logs -f cloudflared
+docker compose logs -f postgres
+
+# Estado de todos os containers
+docker compose ps
 
 # Parar tudo (mantém volumes/dados)
 docker compose down
 
-# Parar e APAGAR todos os dados (volumes)
+# Parar e APAGAR todos os dados (volumes) — IRREVERSIVEL
 docker compose down -v
 
-# Reiniciar apenas um serviço
+# Reiniciar apenas um servico
 docker compose restart server
 
 # Acessar shell do container do servidor
@@ -225,36 +264,40 @@ docker compose exec server sh
 docker compose exec postgres psql -U postgres -d discord
 
 # Backup manual do banco
-docker compose exec postgres pg_dump -U postgres discord > backup_$(date +%Y%m%d).sql
+docker compose exec postgres pg_dump -U postgres discord > backup_$(date +%Y%m%d_%H%M).sql
 
 # Restaurar backup
-docker compose exec -T postgres psql -U postgres discord < backup_YYYYMMDD.sql
+docker compose exec -T postgres psql -U postgres discord < backup_20260101_1200.sql
+
+# Roda migrations manualmente
+docker compose exec server pnpm exec prisma migrate deploy
+
+# Abrir Prisma Studio (inspecionar dados)
+docker compose exec server pnpm exec prisma studio
 ```
 
 ---
 
-## 10. Estrutura de serviços
+## 8. Variáveis de ambiente — referencia completa
 
-```
-┌─────────────────────────────────────────────────────┐
-│  Internet                                            │
-│       │                                              │
-│  Cloudflare CDN + HTTPS                             │
-│       │                                              │
-│  cloudflared (tunnel) ──► web:80 (nginx + React)   │
-│                      └──► server:3000 (Fastify API) │
-│                                 │                    │
-│                    ┌────────────┼────────────┐       │
-│                postgres:5432  redis:6379  minio:9000 │
-│                                                      │
-│  prometheus:9090 ◄─ scrape ─── server:3000/metrics  │
-│  grafana:3001    ◄─ datasource ─ prometheus          │
-└─────────────────────────────────────────────────────┘
-```
+| Variavel | Gerada automaticamente | Obrigatoria | Descricao |
+|----------|----------------------|-------------|-----------|
+| `POSTGRES_PASSWORD` | Sim | Sim | Senha do PostgreSQL |
+| `JWT_SECRET` | Sim | Sim | Chave de assinatura JWT (128 chars hex) |
+| `DATABASE_ENCRYPTION_KEY` | Sim | Sim | Chave de cifra AES-256 para mensagens e DMs |
+| `MINIO_ACCESS_KEY` | Sim | Sim | Usuario do MinIO |
+| `MINIO_SECRET_KEY` | Sim | Sim | Senha do MinIO |
+| `GRAFANA_PASSWORD` | Sim | Nao | Senha do Grafana (default: gerada) |
+| `DOMAIN` | Nao | Sim | Dominio publico (ex: levicord.uk) |
+| `GOOGLE_CLIENT_ID` | Nao | Sim | OAuth Google Client ID |
+| `GOOGLE_CLIENT_SECRET` | Nao | Sim | OAuth Google Client Secret |
+| `ADMIN_EMAILS` | Nao | Sim | Emails admin separados por virgula |
+| `CLOUDFLARED_TOKEN` | Nao | Sim | Token do tunnel Cloudflare |
+| `MINIO_BUCKET` | Nao | Nao | Nome do bucket (default: discord-uploads) |
 
 ---
 
-## 11. Solução de problemas
+## 9. Solucao de problemas
 
 ### Container `server` reiniciando em loop
 
@@ -263,46 +306,121 @@ docker compose logs server --tail=50
 ```
 
 Causas comuns:
-- `JWT_SECRET` não definido no `.env` → servidor faz `throw` no startup
-- Postgres não terminou de inicializar → aguardar `docker compose ps` mostrar `(healthy)`
+- `JWT_SECRET` nao definido ou vazio → servidor faz throw no startup (`app.ts:32`)
+- `DATABASE_ENCRYPTION_KEY` nao definido → servidor recusa iniciar (`app.ts:37`)
+- Postgres nao terminou de inicializar → aguardar `docker compose ps` mostrar `(healthy)`
 - `DATABASE_URL` com senha errada → verificar `POSTGRES_PASSWORD` no `.env`
 
-### Tunnel não conecta
+### Tunnel nao conecta
 
 ```bash
 docker compose logs cloudflared --tail=30
 ```
 
-- Token inválido → gerar novo token no dashboard Cloudflare
-- Tunnel deletado no dashboard → criar novo tunnel e atualizar `CLOUDFLARED_TOKEN`
+- Token invalido → gerar novo token no dashboard Cloudflare
+- Tunnel deletado no dashboard → criar novo tunnel e atualizar `CLOUDFLARED_TOKEN` no `.env`
 
 ### OAuth retorna erro de redirect
 
-- URI de redirect no Google Console não bate com `OAUTH_CALLBACK_URL` no `.env`
-- Verificar se o domínio no Google Console é exatamente `https://SEU_DOMINIO/api/auth/google/callback`
+- URI de redirect no Google Console nao bate com `OAUTH_CALLBACK_URL`
+- Verificar se o dominio no Google Console e exatamente `https://SEU_DOMINIO/api/auth/google/callback`
 
-### MinIO inacessível
+### MinIO inacessivel
 
 ```bash
 docker compose logs minio --tail=20
 curl http://localhost:9000/minio/health/ready
 ```
 
-- `MINIO_SECRET_KEY` com menos de 8 caracteres → MinIO rejeita e não sobe
+- `MINIO_SECRET_KEY` com menos de 8 caracteres → MinIO rejeita e nao sobe
+- O `setup.sh` garante senha com 32 chars, entao so ocorre se o `.env` for editado manualmente
+
+### Migrations falham
+
+```bash
+docker compose logs server | grep -i migration
+docker compose exec server pnpm exec prisma migrate status
+```
+
+- Executar manualmente: `docker compose exec server pnpm exec prisma migrate deploy`
 
 ---
 
-## 12. Variáveis de ambiente — referência completa
+## 10. Backup e restauracao
 
-| Variável | Obrigatória | Descrição |
-|----------|-------------|-----------|
-| `POSTGRES_PASSWORD` | ✅ | Senha do PostgreSQL |
-| `JWT_SECRET` | ✅ | Chave de assinatura JWT (mínimo 32 chars, idealmente 64) |
-| `GOOGLE_CLIENT_ID` | ✅ | OAuth Google Client ID |
-| `GOOGLE_CLIENT_SECRET` | ✅ | OAuth Google Client Secret |
-| `ADMIN_EMAILS` | ✅ | Emails admin separados por vírgula |
-| `CLOUDFLARED_TOKEN` | ✅ | Token do tunnel Cloudflare |
-| `MINIO_ACCESS_KEY` | ✅ | Usuário do MinIO |
-| `MINIO_SECRET_KEY` | ✅ | Senha do MinIO (mínimo 8 chars) |
-| `MINIO_BUCKET` | ❌ | Nome do bucket (default: `discord-uploads`) |
-| `GRAFANA_PASSWORD` | ❌ | Senha do Grafana (default: `admin`) |
+### Backup automatico (opcional)
+
+Adicionar ao cron do servidor (fora do Docker):
+
+```bash
+# Abrir crontab
+crontab -e
+
+# Backup diario as 3h da manha, mantendo os ultimos 7 dias
+0 3 * * * cd /caminho/para/levicord && docker compose exec -T postgres \
+  pg_dump -U postgres discord > backups/backup_$(date +\%Y\%m\%d).sql \
+  && find backups/ -name "backup_*.sql" -mtime +7 -delete
+```
+
+### Restaurar em servidor novo
+
+```bash
+# No servidor novo, apos setup.sh
+mkdir -p backups
+# Copiar o backup para backups/backup_YYYYMMDD.sql
+docker compose exec -T postgres psql -U postgres discord < backups/backup_20260101.sql
+```
+
+---
+
+## 11. Migrar para servidor novo — passo a passo completo
+
+```bash
+# ── No servidor ANTIGO ───────────────────────────────────────────────────────
+
+# 1. Backup do banco
+docker compose exec postgres pg_dump -U postgres discord > backup_migration.sql
+
+# 2. Copiar .env (contém todos os segredos)
+cat .env
+
+# ── No servidor NOVO ─────────────────────────────────────────────────────────
+
+# 1. Instalar Docker (ver secao "Pre-requisitos")
+
+# 2. Clonar repositório
+git clone <URL_DO_REPO> levicord
+cd levicord
+
+# 3. Copiar o .env do servidor antigo
+#    (ou criar novo com setup.sh — mas usar as mesmas chaves para compatibilidade com dados cifrados!)
+#    ATENCAO: DATABASE_ENCRYPTION_KEY e JWT_SECRET DEVEM ser os mesmos do servidor antigo
+#    para que os dados criptografados possam ser descriptografados.
+nano .env  # colar o conteudo do .env antigo
+
+# 4. Subir containers (sem build da app por enquanto)
+docker compose up -d postgres redis minio
+
+# 5. Aguardar postgres ficar healthy
+docker compose ps
+
+# 6. Restaurar o backup
+docker compose exec -T postgres psql -U postgres discord < backup_migration.sql
+
+# 7. Subir o resto
+docker compose up -d --build
+
+# 8. Migrations (aplica apenas as pendentes)
+docker compose exec server pnpm exec prisma migrate deploy
+
+# 9. Verificar
+curl http://localhost:3000/readyz
+```
+
+> **CRITICO**: Se usar um `DATABASE_ENCRYPTION_KEY` diferente no servidor novo,
+> todas as mensagens e DMs armazenadas ficarao ilegíveis (decifra vai falhar).
+> Sempre migrar o `.env` junto com o backup do banco.
+
+---
+
+*Ultima atualizacao: 2026-10-01. Para suporte, consultar tambem `RUNBOOK.md` (resposta a incidentes).*

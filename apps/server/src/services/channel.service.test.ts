@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { canAccessChannel, getChannels, createMessage, deleteMessage } from './channel.service';
+import { canAccessChannel, getChannels, getChannelMessages, searchMessages, createMessage, deleteMessage } from './channel.service';
+import { decryptForServer, isEncrypted, encryptForServer } from '../lib/crypto';
 import type { PrismaClient } from '@prisma/client';
 
 describe('Channel Service', () => {
@@ -82,14 +83,20 @@ describe('Channel Service', () => {
       } as unknown as PrismaClient;
 
       const rawContent = 'Olá! <script>alert("xss")</script><img src=x onerror=alert(1)><b>Negrito seguro</b>';
-      await createMessage(rawContent, 'user-1', 'ch-1', undefined, mockPrisma);
+      const created = await createMessage(rawContent, 'user-1', 'ch-1', undefined, mockPrisma);
 
       expect(mockPrisma.message.create).toHaveBeenCalled();
-      expect(savedData.content).not.toContain('<script>');
-      expect(savedData.content).not.toContain('onerror');
-      expect(savedData.content).toContain('Negrito seguro');
+      expect(isEncrypted(savedData.content)).toBe(true);
+
+      const decryptedPersisted = decryptForServer(savedData.content, null);
+      expect(decryptedPersisted).not.toContain('<script>');
+      expect(decryptedPersisted).not.toContain('onerror');
+      expect(decryptedPersisted).toContain('Negrito seguro');
       expect(savedData.channelId).toBe('ch-1');
       expect(savedData.authorId).toBe('user-1');
+
+      expect(created.content).not.toContain('<script>');
+      expect(created.content).toContain('Negrito seguro');
     });
 
     it('should handle null content with attachments', async () => {
@@ -228,6 +235,54 @@ describe('Channel Service', () => {
       await expect(deleteMessage('m-3', 'random-user', mockPrisma)).rejects.toThrow(
         'Você só pode excluir as suas próprias mensagens.'
       );
+    });
+  });
+
+  describe('getChannelMessages & searchMessages with Server Encryption', () => {
+    it('should transparently decrypt messages when fetching channel history', async () => {
+      const serverId = 'srv-test-123';
+      const encryptedMsg1 = encryptForServer('Olá equipe no servidor!', serverId);
+      const encryptedMsg2 = encryptForServer('Outra mensagem confidencial', serverId);
+
+      const mockPrisma = {
+        channel: {
+          findUnique: vi.fn().mockResolvedValue({ serverId }),
+        },
+        message: {
+          findMany: vi.fn().mockResolvedValue([
+            { id: 'msg-1', content: encryptedMsg1, author: {}, attachments: [] },
+            { id: 'msg-2', content: encryptedMsg2, author: {}, attachments: [] },
+          ]),
+        },
+      } as unknown as PrismaClient;
+
+      const result = await getChannelMessages('ch-server', 50, undefined, mockPrisma);
+      expect(result.messages).toHaveLength(2);
+      expect(result.messages[0].content).toBe('Olá equipe no servidor!');
+      expect(result.messages[1].content).toBe('Outra mensagem confidencial');
+    });
+
+    it('should decrypt in memory and match search queries', async () => {
+      const serverId = 'srv-search-456';
+      const encryptedMsg1 = encryptForServer('Relatório de vendas concluído', serverId);
+      const encryptedMsg2 = encryptForServer('Outro assunto aleatório', serverId);
+
+      const mockPrisma = {
+        channel: {
+          findUnique: vi.fn().mockResolvedValue({ serverId }),
+        },
+        message: {
+          findMany: vi.fn().mockResolvedValue([
+            { id: 'msg-1', content: encryptedMsg1, author: {}, attachments: [] },
+            { id: 'msg-2', content: encryptedMsg2, author: {}, attachments: [] },
+          ]),
+        },
+      } as unknown as PrismaClient;
+
+      const searchResults = await searchMessages('ch-server', 'vendas', 20, mockPrisma);
+      expect(searchResults).toHaveLength(1);
+      expect(searchResults[0].id).toBe('msg-1');
+      expect(searchResults[0].content).toBe('Relatório de vendas concluído');
     });
   });
 });

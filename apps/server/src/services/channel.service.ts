@@ -4,6 +4,7 @@ import { prisma as defaultPrisma } from '../prisma';
 import type { PrismaClient } from '@prisma/client';
 import { canDeleteMessage, type ActorContext, type ServerContext } from './permission.service';
 import { isUserMutedInServer } from './server.service';
+import { encryptForServer, decryptForServer } from '../lib/crypto';
 
 export async function getChannels(
   userId: string,
@@ -85,6 +86,15 @@ export async function updateChannel(id: string, name: string, description?: stri
 }
 
 export async function getChannelMessages(channelId: string, limit = 50, cursor?: string, prisma: PrismaClient = defaultPrisma) {
+  let serverId: string | null | undefined = undefined;
+  if (prisma.channel?.findUnique) {
+    const channel = await prisma.channel.findUnique({
+      where: { id: channelId },
+      select: { serverId: true },
+    });
+    serverId = channel?.serverId;
+  }
+
   const messages = await prisma.message.findMany({
     where: { channelId },
     take: limit + 1,
@@ -102,24 +112,44 @@ export async function getChannelMessages(channelId: string, limit = 50, cursor?:
   const page = hasMore ? messages.slice(0, limit) : messages;
 
   return {
-    messages: page,
+    messages: page.map((msg) => ({
+      ...msg,
+      content: decryptForServer(msg.content, serverId),
+    })),
     nextCursor: hasMore ? page[page.length - 1].id : null,
   };
 }
 
 export async function searchMessages(channelId: string, query: string, limit = 20, prisma: PrismaClient = defaultPrisma) {
-  return prisma.message.findMany({
-    where: {
-      channelId,
-      content: { contains: query, mode: 'insensitive' },
-    },
-    take: Math.min(limit, 50),
+  let serverId: string | null | undefined = undefined;
+  if (prisma.channel?.findUnique) {
+    const channel = await prisma.channel.findUnique({
+      where: { id: channelId },
+      select: { serverId: true },
+    });
+    serverId = channel?.serverId;
+  }
+
+  const messages = await prisma.message.findMany({
+    where: { channelId },
+    take: 100,
     orderBy: { createdAt: 'desc' },
     include: {
       author: { select: { id: true, displayName: true, avatarUrl: true } },
       attachments: true,
     },
   });
+
+  const normalizedQuery = query.toLowerCase();
+
+  const decryptedMessages = messages.map((msg) => ({
+    ...msg,
+    content: decryptForServer(msg.content, serverId),
+  }));
+
+  return decryptedMessages
+    .filter((msg) => msg.content && msg.content.toLowerCase().includes(normalizedQuery))
+    .slice(0, Math.min(limit, 50));
 }
 
 export async function createMessage(
@@ -129,16 +159,21 @@ export async function createMessage(
   attachments?: { url: string; type: 'image' | 'video' | 'file' | 'IMAGE' | 'VIDEO' | 'FILE'; fileName: string; fileSize: number; mimeType: string }[],
   prisma: PrismaClient = defaultPrisma
 ) {
+  let serverId: string | null | undefined = undefined;
+
   if (prisma.channel?.findUnique) {
     const channel = await prisma.channel.findUnique({
       where: { id: channelId },
       select: { serverId: true },
     });
 
-    if (channel?.serverId) {
-      const isMuted = await isUserMutedInServer(channel.serverId, authorId, prisma);
-      if (isMuted) {
-        throw new Error('Você está mutado neste servidor.');
+    if (channel) {
+      serverId = channel.serverId;
+      if (channel.serverId) {
+        const isMuted = await isUserMutedInServer(channel.serverId, authorId, prisma);
+        if (isMuted) {
+          throw new Error('Você está mutado neste servidor.');
+        }
       }
     }
   }
@@ -153,9 +188,12 @@ export async function createMessage(
       }))
     : undefined;
 
-  return prisma.message.create({
+  const sanitized = content ? sanitizeHtml(content) : null;
+  const encrypted = encryptForServer(sanitized, serverId);
+
+  const created = await prisma.message.create({
     data: {
-      content: content ? sanitizeHtml(content) : null,
+      content: encrypted,
       authorId,
       channelId,
       ...(formattedAttachments ? {
@@ -171,6 +209,12 @@ export async function createMessage(
       attachments: true
     }
   });
+
+  // Return decrypted content so caller and real-time socket emit receive plain text
+  return {
+    ...created,
+    content: sanitized,
+  };
 }
 
 export async function deleteMessage(
