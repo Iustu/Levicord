@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Hash, Plus, Pencil, MessageCircle, Volume2, Search, X, Menu, Settings, LogOut } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useChatStore } from '../stores/useChatStore';
 import { useSocket } from '../hooks/useSocket';
+import { useTypingIndicator } from '../hooks/useTypingIndicator';
+import { useChannelMessages } from '../hooks/useChannelMessages';
+import { useDmMessages } from '../hooks/useDmMessages';
 import { apiFetch } from '../lib/api';
 import { CreateChannelModal } from '../components/CreateChannelModal';
 import { EditProfileModal } from '../components/EditProfileModal';
@@ -11,89 +13,65 @@ import { Avatar } from '../components/Avatar';
 import { MessageList } from '../components/MessageList';
 import { ChatInput } from '../components/ChatInput';
 import { VoiceScreen } from '../components/VoiceScreen';
-import type { Channel, Message, DirectMessage, User } from '@discord-clone/shared';
+import type { Channel, Message, User } from '@discord-clone/shared';
 import type { UploadedAttachment } from '../components/ChatInput';
 import './MainApp.css';
 
 /**
- * MainApp — top-level layout and data-fetching orchestrator.
+ * MainApp — top-level layout and navigation orchestrator.
  *
  * Responsibilities of THIS file (and nothing else):
- *   1. Route protection
- *   2. Data fetching (channels, users, messages, DMs)
- *   3. Navigation state (active channel, active DM, voice call)
- *   4. Layout skeleton (sidebar + chat area)
+ *   1. Layout skeleton (sidebar + chat area)
+ *   2. Navigation state (active channel, active DM, view mode, voice call)
+ *   3. Channel CRUD
+ *   4. Search
  *
- * All rendering of messages, input and voice UI is delegated to
- * <MessageList>, <ChatInput> and <VoiceScreen> respectively.
- * (Engenharia de Software — SRP, Low Coupling)
+ * Data fetching is fully delegated to hooks:
+ *   - useChannelMessages → channel messages + pagination
+ *   - useDmMessages      → DM messages
+ *   - useTypingIndicator → typing state
+ *
+ * Route protection is handled by ProtectedRoute in App.tsx.
+ * (ESM — SRP, Low Coupling)
  */
 export default function MainApp() {
-  const { token, isLoading: isAuthLoading, logout } = useAuth();
-  const navigate = useNavigate();
+  const { token, logout } = useAuth();
 
   const {
     viewMode, setViewMode,
-    channels, activeChannelId, messages, setChannels, setActiveChannelId, setMessages, prependMessages,
+    channels, activeChannelId, setChannels, setActiveChannelId,
     users, setUsers,
-    activeDmUserId, setActiveDmUserId, dms, setDms,
+    activeDmUserId, setActiveDmUserId,
     currentUser, setCurrentUser, updateCurrentUser,
   } = useChatStore();
 
-  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
-
   const { socket, joinChannel, sendMessage, sendDm, sendTypingStart, sendTypingStop } = useSocket();
 
-  const [typingUserNames, setTypingUserNames] = useState<string[]>([]);
+  // ── Data hooks ─────────────────────────────────────────────────────────────
+  const channelMessages = useChannelMessages({
+    token,
+    channelId: viewMode === 'channels' ? activeChannelId : null,
+    onJoinChannel: joinChannel,
+  });
 
-  useEffect(() => {
-    if (!socket) return;
-    const typingTimers: Record<string, ReturnType<typeof setTimeout>> = {};
+  const dmMessages = useDmMessages({
+    token,
+    dmUserId: viewMode === 'dms' ? activeDmUserId : null,
+  });
 
-    const onTyping = (data: { userId: string; channelId: string }) => {
-      if (data.channelId !== activeChannelId) return;
-      const user = users.find((u) => u.id === data.userId);
-      const name = user?.displayName ?? 'Alguém';
-      setTypingUserNames((prev) => prev.includes(name) ? prev : [...prev, name]);
-      if (typingTimers[data.userId]) clearTimeout(typingTimers[data.userId]);
-      typingTimers[data.userId] = setTimeout(() => {
-        setTypingUserNames((prev) => prev.filter((n) => n !== name));
-        delete typingTimers[data.userId];
-      }, 3000);
-    };
+  const typingUserNames = useTypingIndicator({ socket, activeChannelId, users });
 
-    const onStopTyping = (data: { userId: string }) => {
-      const user = users.find((u) => u.id === data.userId);
-      const name = user?.displayName ?? 'Alguém';
-      if (typingTimers[data.userId]) {
-        clearTimeout(typingTimers[data.userId]);
-        delete typingTimers[data.userId];
-      }
-      setTypingUserNames((prev) => prev.filter((n) => n !== name));
-    };
-
-    socket.on('user_typing', onTyping);
-    socket.on('user_stopped_typing', onStopTyping);
-    return () => {
-      socket.off('user_typing', onTyping);
-      socket.off('user_stopped_typing', onStopTyping);
-      Object.values(typingTimers).forEach(clearTimeout);
-    };
-  }, [socket, activeChannelId, users]);
-
+  // ── UI state ──────────────────────────────────────────────────────────────
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
-  const createChannelBtnRef = useRef<HTMLButtonElement>(null);
-
-  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
-  const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [activeVoiceChannelId, setActiveVoiceChannelId] = useState<string | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [channelsError, setChannelsError] = useState<string | null>(null);
   const [channelsRetryKey, setChannelsRetryKey] = useState(0);
+  const createChannelBtnRef = useRef<HTMLButtonElement>(null);
 
-  const [activeVoiceChannelId, setActiveVoiceChannelId] = useState<string | null>(null);
-
+  // ── Search ────────────────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Message[] | null>(null);
   const [isSearching, setIsSearching] = useState(false);
@@ -119,20 +97,7 @@ export default function MainApp() {
 
   const clearSearch = () => { setSearchQuery(''); setSearchResults(null); };
 
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  const messagesListRef = useRef<HTMLDivElement>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const preserveScrollRef = useRef(false);
-  const shouldAutoScrollRef = useRef(true);
-  const olderMessagesControllerRef = useRef<AbortController | null>(null);
-
-  // ── Route protection ───────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!isAuthLoading && !token) navigate('/login');
-  }, [isAuthLoading, token, navigate]);
-
-  // ── Fetch current user profile ─────────────────────────────────────────────
+  // ── Bootstrap fetches ─────────────────────────────────────────────────────
   useEffect(() => {
     if (!token) return;
     apiFetch<User>('/api/auth/me', token)
@@ -140,7 +105,6 @@ export default function MainApp() {
       .catch(console.error);
   }, [token, setCurrentUser]);
 
-  // ── Fetch channels ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (!token) return;
     setChannelsError(null);
@@ -153,7 +117,6 @@ export default function MainApp() {
       .catch(() => setChannelsError('Não foi possível carregar os canais. Verifique a sua ligação e tente novamente.'));
   }, [token, channelsRetryKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Fetch users for DMs ────────────────────────────────────────────────────
   useEffect(() => {
     if (!token || viewMode !== 'dms') return;
     apiFetch<{ users: User[]; nextCursor: string | null }>('/api/users', token)
@@ -161,111 +124,39 @@ export default function MainApp() {
       .catch(console.error);
   }, [token, viewMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Fetch channel messages ─────────────────────────────────────────────────
-  useEffect(() => {
-    if (!token || viewMode !== 'channels' || !activeChannelId) return;
-    const channel = channels.find((c) => c.id === activeChannelId);
-    if (channel?.type === 'VOICE') return;
+  // ── Derived values ────────────────────────────────────────────────────────
+  const activeChannel = channels.find((c) => c.id === activeChannelId);
+  const activeDmUser = users.find((u) => u.id === activeDmUserId);
+  const isVoiceChannel = activeChannel?.type === 'VOICE';
+  const isInCall = activeVoiceChannelId === activeChannelId;
 
-    let cancelled = false;
-    joinChannel(activeChannelId);
-    setIsLoadingMessages(true);
-    setFetchError(null);
-    shouldAutoScrollRef.current = true;
-    setNextCursor(null);
-    setTypingUserNames([]);
+  const currentMessages = viewMode === 'channels' ? channelMessages.messages : dmMessages.messages;
+  const isLoadingMessages = viewMode === 'channels' ? channelMessages.isLoading : dmMessages.isLoading;
+  const fetchError = viewMode === 'channels' ? channelMessages.fetchError : dmMessages.fetchError;
+  const messagesEndRef = viewMode === 'channels' ? channelMessages.messagesEndRef : dmMessages.messagesEndRef;
+  const messagesListRef = viewMode === 'channels' ? channelMessages.messagesListRef : dmMessages.messagesListRef;
 
-    apiFetch<{ messages: Message[]; nextCursor: string | null }>(
-      `/api/channels/${activeChannelId}/messages`,
-      token,
-    )
-      .then((data) => {
-        if (cancelled) return;
-        setMessages(data.messages);
-        setNextCursor(data.nextCursor);
-      })
-      .catch(() => { if (!cancelled) setFetchError('Não foi possível carregar as mensagens. Verifique a sua ligação e tente novamente.'); })
-      .finally(() => { if (!cancelled) setIsLoadingMessages(false); });
-
-    return () => {
-      cancelled = true;
-      olderMessagesControllerRef.current?.abort();
-      olderMessagesControllerRef.current = null;
-    };
-  }, [token, activeChannelId, viewMode]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Fetch DM messages ──────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!token || viewMode !== 'dms' || !activeDmUserId) return;
-    let cancelled = false;
-    setIsLoadingMessages(true);
-    setFetchError(null);
-    shouldAutoScrollRef.current = true;
-
-    apiFetch<DirectMessage[]>(`/api/users/${activeDmUserId}/dms`, token)
-      .then((data) => { if (!cancelled) setDms(activeDmUserId, data); })
-      .catch(() => { if (!cancelled) setFetchError('Não foi possível carregar as mensagens. Verifique a sua ligação e tente novamente.'); })
-      .finally(() => { if (!cancelled) setIsLoadingMessages(false); });
-
-    return () => { cancelled = true; };
-  }, [token, activeDmUserId, viewMode]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Auto-scroll ────────────────────────────────────────────────────────────
-  const currentMessages = viewMode === 'channels'
-    ? messages
-    : (activeDmUserId ? (dms[activeDmUserId] ?? []) : []);
-
-  useEffect(() => {
-    if (preserveScrollRef.current) { preserveScrollRef.current = false; return; }
-    if (shouldAutoScrollRef.current) messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [currentMessages]);
-
-  // ── Load older messages ────────────────────────────────────────────────────
-  const loadOlderMessages = async () => {
-    if (!token || viewMode !== 'channels' || !activeChannelId || !nextCursor || isLoadingOlderMessages) return;
-    const list = messagesListRef.current;
-    const previousHeight = list?.scrollHeight ?? 0;
-    const requested = activeChannelId;
-    const controller = new AbortController();
-    olderMessagesControllerRef.current?.abort();
-    olderMessagesControllerRef.current = controller;
-    setIsLoadingOlderMessages(true);
-
-    try {
-      const data = await apiFetch<{ messages: Message[]; nextCursor: string | null }>(
-        `/api/channels/${activeChannelId}/messages?cursor=${encodeURIComponent(nextCursor)}`,
-        token,
-        { signal: controller.signal },
-      );
-      if (controller.signal.aborted || requested !== activeChannelId) return;
-      preserveScrollRef.current = true;
-      prependMessages(data.messages);
-      setNextCursor(data.nextCursor);
-      requestAnimationFrame(() => {
-        if (list) list.scrollTop += list.scrollHeight - previousHeight;
-      });
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') return;
-      setFetchError('Não foi possível carregar mensagens anteriores.');
-    } finally {
-      if (olderMessagesControllerRef.current === controller) {
-        olderMessagesControllerRef.current = null;
-        setIsLoadingOlderMessages(false);
-      }
-    }
+  const handleRetry = () => {
+    if (viewMode === 'channels') channelMessages.retry();
+    else dmMessages.retry();
   };
 
-  // ── Send handlers ──────────────────────────────────────────────────────────
+  const chatPlaceholder = viewMode === 'channels'
+    ? `Conversar em #${activeChannel?.name ?? ''}`
+    : `Enviar mensagem para @${activeDmUser?.displayName ?? ''}`;
+
+  const hasActiveConversation =
+    (viewMode === 'channels' && !!activeChannelId && !!activeChannel) ||
+    (viewMode === 'dms' && !!activeDmUserId && !!activeDmUser);
+
+  // ── Send handlers ─────────────────────────────────────────────────────────
   const handleSend = (content: string | null, attachment: UploadedAttachment | null) => {
     const attachments = attachment ? [attachment] : undefined;
-    if (viewMode === 'channels' && activeChannelId) {
-      sendMessage(activeChannelId, content, attachments);
-    } else if (viewMode === 'dms' && activeDmUserId) {
-      sendDm(activeDmUserId, content, attachments);
-    }
+    if (viewMode === 'channels' && activeChannelId) sendMessage(activeChannelId, content, attachments);
+    else if (viewMode === 'dms' && activeDmUserId) sendDm(activeDmUserId, content, attachments);
   };
 
-  // ── Channel CRUD ───────────────────────────────────────────────────────────
+  // ── Channel CRUD ──────────────────────────────────────────────────────────
   const handleSaveChannel = async (name: string, description: string, type: 'TEXT' | 'VOICE' = 'TEXT') => {
     if (!token) return;
     if (!editingChannel) {
@@ -287,24 +178,8 @@ export default function MainApp() {
 
   const handleChannelClick = (channel: Channel) => {
     setActiveChannelId(channel.id);
-    if (channel.type === 'VOICE') {
-      setActiveVoiceChannelId(null); // reset — user must explicitly join call
-    }
+    if (channel.type === 'VOICE') setActiveVoiceChannelId(null);
   };
-
-  // ── Derived values ─────────────────────────────────────────────────────────
-  const activeChannel = channels.find((c) => c.id === activeChannelId);
-  const activeDmUser = users.find((u) => u.id === activeDmUserId);
-  const isVoiceChannel = activeChannel?.type === 'VOICE';
-  const isInCall = activeVoiceChannelId === activeChannelId;
-
-  const chatPlaceholder = viewMode === 'channels'
-    ? `Conversar em #${activeChannel?.name ?? ''}`
-    : `Enviar mensagem para @${activeDmUser?.displayName ?? ''}`;
-
-  const hasActiveConversation =
-    (viewMode === 'channels' && !!activeChannelId && !!activeChannel) ||
-    (viewMode === 'dms' && !!activeDmUserId && !!activeDmUser);
 
   return (
     <div className="app-container">
@@ -314,6 +189,7 @@ export default function MainApp() {
         onClick={() => setSidebarOpen(false)}
         aria-hidden="true"
       />
+
       {/* ── Sidebar ────────────────────────────────────────────────────── */}
       <div className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}>
         <div className="sidebar-header">
@@ -395,12 +271,7 @@ export default function MainApp() {
                     tabIndex={0}
                     onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveDmUserId(user.id); } }}
                   >
-                    <Avatar
-                      src={user.avatarUrl}
-                      name={user.displayName}
-                      size={24}
-                      className="dm-avatar-small"
-                    />
+                    <Avatar src={user.avatarUrl} name={user.displayName} size={24} className="dm-avatar-small" />
                     <span>{user.displayName}</span>
                   </li>
                 ))}
@@ -427,12 +298,7 @@ export default function MainApp() {
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setIsProfileModalOpen(true); }}
           >
             <div className="user-avatar-wrapper">
-              <Avatar
-                src={currentUser?.avatarUrl}
-                name={currentUser?.displayName}
-                size={32}
-                className="user-panel-avatar"
-              />
+              <Avatar src={currentUser?.avatarUrl} name={currentUser?.displayName} size={32} className="user-panel-avatar" />
               <span className="status-indicator" title="Online" />
             </div>
             <div className="user-details">
@@ -441,20 +307,10 @@ export default function MainApp() {
             </div>
           </div>
           <div className="user-panel-actions">
-            <button
-              className="icon-btn profile-settings-btn"
-              onClick={() => setIsProfileModalOpen(true)}
-              title="Editar perfil (nome e foto)"
-              aria-label="Editar perfil"
-            >
+            <button className="icon-btn profile-settings-btn" onClick={() => setIsProfileModalOpen(true)} title="Editar perfil" aria-label="Editar perfil">
               <Settings size={18} />
             </button>
-            <button
-              className="icon-btn logout-btn"
-              onClick={logout}
-              title="Sair da conta"
-              aria-label="Sair da conta"
-            >
+            <button className="icon-btn logout-btn" onClick={logout} title="Sair da conta" aria-label="Sair da conta">
               <LogOut size={18} />
             </button>
           </div>
@@ -507,6 +363,7 @@ export default function MainApp() {
                 </div>
               )}
             </div>
+
             {searchResults !== null && (
               <div className="search-results" role="region" aria-label="Resultados da busca">
                 <div className="search-results-header">
@@ -552,15 +409,11 @@ export default function MainApp() {
                   activeChannelName={activeChannel?.name}
                   activeDmUser={activeDmUser}
                   isLoading={isLoadingMessages}
-                  isLoadingOlder={isLoadingOlderMessages}
+                  isLoadingOlder={viewMode === 'channels' ? channelMessages.isLoadingOlder : false}
                   fetchError={fetchError}
-                  nextCursor={nextCursor}
-                  onLoadOlder={loadOlderMessages}
-                  onRetry={() =>
-                    viewMode === 'channels'
-                      ? setActiveChannelId(activeChannelId!)
-                      : setActiveDmUserId(activeDmUserId!)
-                  }
+                  nextCursor={viewMode === 'channels' ? channelMessages.nextCursor : null}
+                  onLoadOlder={channelMessages.loadOlderMessages}
+                  onRetry={handleRetry}
                   messagesEndRef={messagesEndRef}
                   messagesListRef={messagesListRef}
                   typingUserNames={typingUserNames}
@@ -582,13 +435,13 @@ export default function MainApp() {
             <p>
               {viewMode === 'channels'
                 ? (channels.length === 0 ? 'Nenhum canal criado. Crie um canal para começar.' : 'Selecione um canal.')
-                : (users.length === 0 ? 'Nenhum usuário disponível.' : 'Selecione um usuário para iniciar uma conversa.')}
+                : (users.length === 0 ? 'Nenhum utilizador disponível.' : 'Selecione um utilizador para iniciar uma conversa.')}
             </p>
           </div>
         )}
       </div>
 
-      {/* ── Modal ──────────────────────────────────────────────────────── */}
+      {/* ── Modals ──────────────────────────────────────────────────────── */}
       <CreateChannelModal
         isOpen={isModalOpen || editingChannel !== null}
         onClose={() => { setIsModalOpen(false); setEditingChannel(null); }}

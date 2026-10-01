@@ -1,7 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import { encrypt, decrypt, isEncrypted } from './crypto';
 
 describe('AES-256-GCM Crypto Module', () => {
+  beforeAll(() => {
+    process.env.DATABASE_ENCRYPTION_KEY = 'test-key-32-chars-long-secret!!';
+  });
+
   it('should encrypt and decrypt a message accurately', () => {
     const original = 'Mensagem confidencial entre usuários do Levicord';
     const encrypted = encrypt(original);

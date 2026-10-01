@@ -4,6 +4,7 @@ import Login from './pages/Login';
 import ProfileSetup from './pages/ProfileSetup';
 import { useAuth } from './hooks/useAuth';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { ProtectedRoute } from './components/ProtectedRoute';
 
 import MainApp from './pages/MainApp';
 
@@ -49,8 +50,8 @@ function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/auth/callback" element={<AuthCallback />} />
-          <Route path="/setup" element={<ProfileSetup />} />
-          <Route path="/app" element={<MainApp />} />
+          <Route path="/setup" element={<ProtectedRoute><ProfileSetup /></ProtectedRoute>} />
+          <Route path="/app" element={<ProtectedRoute><MainApp /></ProtectedRoute>} />
           <Route path="/" element={<Navigate to="/login" />} />
         </Routes>
       </ErrorBoundary>

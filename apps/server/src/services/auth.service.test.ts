@@ -41,7 +41,7 @@ describe('Auth Service', () => {
         where: { id: 'admin-user' },
         select: { role: true },
       });
-      expect(mockRedis.set).toHaveBeenCalledWith('admin:admin-user', '1', 'EX', 60);
+      expect(mockRedis.set).toHaveBeenCalledWith('admin:admin-user', '1', 'EX', 10);
     });
 
     it('should return false for regular USER role and cache "0"', async () => {
@@ -59,7 +59,7 @@ describe('Auth Service', () => {
       const result = await isAdmin('regular-user', mockPrisma, mockRedis);
 
       expect(result).toBe(false);
-      expect(mockRedis.set).toHaveBeenCalledWith('admin:regular-user', '0', 'EX', 60);
+      expect(mockRedis.set).toHaveBeenCalledWith('admin:regular-user', '0', 'EX', 10);
     });
   });
 
