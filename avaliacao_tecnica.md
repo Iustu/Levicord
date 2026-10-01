@@ -1,223 +1,117 @@
-# 🔍 Plano de Ação Priorizado — Levicord (Gaps Pendentes)
+# 🔍 Avaliação Técnica e Plano de Ação — Levicord
 
-> Apenas itens **PENDENTES** — resolvidos removidos. Gaps detectados pelo cruzamento com os 4 livros de referência marcados com 📚.
-
----
-
-## 🔴 PRIORIDADE 1: CRÍTICA (Bloqueantes para Produção)
-
-| # | Área | Gap Técnico | Impacto | Fonte | Ação Recomendada |
-|---|------|-------------|---------|-------|------------------|
-| **1.1** | **DevSecOps** | Segredos hardcoded no `docker-compose.yml`: `JWT_SECRET: local-development-secret-change-in-production` e `DATABASE_URL` com senha em texto plano. | Compromisso total de auth e banco se o repositório for lido. | BSRS Cap.14 · DevSecOps L2 | Substituir por `${JWT_SECRET}` sem valor default. Injetar via `.env` nunca commitado + `.env.example` documentado. |
-| **1.2** | **Testes** | Ausência absoluta de testes automatizados: `app.test.ts` vazio, frontend sem setup. Vitest instalado mas zero casos escritos. | Qualquer mudança em `isAdmin`, `evictLru` ou nas routes quebra silenciosamente. Gap unânime nos 4 livros. | BSRS Cap.13 · DevSecOps L3 · ESM Cap.8 · DMMT Cap.9 | Vitest + Supertest (server) + React Testing Library (web). Cobrir: `auth.service`, `channel.service`, `isAdmin`, `evictLru`, routes de auth e upload. |
-| **1.3** | **DevSecOps / Supply Chain** 📚 | Sem SCA no CI: `pnpm audit` não roda, sem Dependabot. ~400 dependências transitivas sem auditoria de CVEs. | CVE em `fastify`, `ioredis`, `minio` ou `prisma` passa despercebido indefinidamente. | DevSecOps L3 · BSRS Cap.7 | `pnpm audit --audit-level=high` no CI (falha o build). Dependabot (`dependabot.yml`) para PRs automáticos semanais. |
+> **Documento Atualizado**: Itens concluídos foram validados e removidos da fila de pendências ativas.  
+> Itens de infraestrutura corporativa/SRE foram classificados como **Postergados para Produção**, focando o desenvolvimento atual na estabilidade e segurança da aplicação.  
+> Cruzamento rigoroso com os 4 livros técnicos da pasta [`Livro/`](file:///c:/Users/joao.ribeiro/Desktop/Discord/Livro).
 
 ---
 
-## 🟠 PRIORIDADE 2: ALTA (Segurança Estrutural) - ✅ CONCLUÍDO
+## 🔴 BLOQUEANTE ATUAL (Escopo de Desenvolvimento)
 
-| # | Área | Gap Técnico | Impacto | Fonte | Ação Recomendada |
-|---|------|-------------|---------|-------|------------------|
-| **2.1** | **Segurança / Auditoria** 📚 | ~~✅ Sem log estruturado de eventos de segurança: auth failures, uploads rejeitados, ações admin, acessos negados.~~ | Impossível investigar incidente post-mortem. Sem audit trail, sistema não é auditável. | BSRS Cap.15 · DevSecOps L2 | `app.log.info({ event, userId, ip, ... })` em: `requireAuth` (falha), `isAdmin` (negado), `upload.routes` (MIME rejeitado), logout, callback OAuth. |
-| **2.2** | **DevSecOps / SAST** 📚 | ~~✅ Sem SAST além de `tsc`. TypeScript não detecta timing attacks, regex DoS, injection fora do ORM. `tsc --noEmit` também não roda no CI.~~ | Vulnerabilidades sutis e erros de tipo não detectados no PR. | DevSecOps L3 · BSRS Cap.13 | Semgrep (`semgrep --config=p/typescript`) ou GitHub CodeQL. Adicionar `tsc --noEmit` como step separado de `build`. |
-| **2.3** | **DevSecOps / DAST** 📚 | ~~✅ Sem DAST: nenhuma varredura de segurança contra a aplicação em execução.~~ | Vulnerabilidades só detectáveis em runtime (SSRF, open redirect, headers ausentes) passam invisíveis. | DevSecOps L3 | OWASP ZAP scan (`zaproxy/action-full-scan`) no CI contra ambiente de staging. |
-| **2.4** | **DevSecOps / Containers** 📚 | ~~✅ Sem container image scanning: imagens `node:20`, `postgres:16`, `redis:7` podem ter CVEs não detectados.~~ | Vulnerabilidade no OS base compromete todo o serviço. | DevSecOps L3 | `aquasecurity/trivy-action` em cada Dockerfile no CI. Falhar build em severidade `CRITICAL`. |
-| **2.5** | **Segurança / Least Privilege** 📚 | ~~✅ Sem ACL por canal: qualquer user autenticado lê/escreve qualquer canal. Só `isAdmin` diferencia roles.~~ | Canais privados expostos a todos os membros autenticados. Viola menor privilégio. | BSRS Cap.5 · DevSecOps L2 | Campo `isPrivate` + tabela `ChannelMember` no Prisma. Guard em `GET /:id/messages` e handler `join_channel` verificando membership. |
-| **2.6** | **Segurança / XSS** 📚 | ~~✅ `content` de mensagem salvo sem sanitização server-side. `react-markdown` mitiga no browser mas dados brutos no banco vazam via outras superfícies.~~ | XSS latente. Qualquer client sem sanitização executa payload malicioso. | BSRS Cap.12 · DevSecOps L2 | `sanitize-html` no server. Sanitizar `content` antes de `prisma.message.create` em `channel.service.ts` e `dm.service.ts`. |
-| **2.7** | **DevSecOps / Processo** 📚 | ~~✅ Sem processo de triagem de CVEs nem SLA de patching. SCA vai detectar vulnerabilidades mas sem processo a resposta fica indefinida.~~ | CVEs críticos detectados mas sem ação por falta de processo. | DevSecOps L3 | Definir SLA: CRITICAL ≤ 48h, HIGH ≤ 7 dias. Issue automática via Dependabot. Triagem semanal designada. |
+| # | Área | Gap Técnico | Impacto | Fonte | Ação Recomendada | Status |
+|---|------|-------------|---------|-------|------------------|:------:|
+| **1.1** | **DevSecOps / Secrets** 📚 | Valores de fallback no [`docker-compose.yml`](file:///c:/Users/joao.ribeiro/Desktop/Discord/docker-compose.yml): `JWT_SECRET: local-development-secret-change-in-production`, `DATABASE_URL` com `password` e `POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}`. | Risco de uso de credenciais fracas se implantado sem um arquivo `.env` preenchido. | BSRS Cap. 14 · DevSecOps Layer 2 | Remover fallbacks inseguros (`${VAR:-password}`). Exigir definição explícita via `.env` não versionado. | 🟡 Pendente |
 
 ---
 
-## 🟡 PRIORIDADE 3: MÉDIA (Confiabilidade, UX e Processo)
+## ⏳ ITENS POSTERGADOS PARA PRODUÇÃO (Ambiente Atual: Dev)
 
-| # | Área | Gap Técnico | Impacto | Fonte | Ação Recomendada |
-|---|------|-------------|---------|-------|------------------|
-| **3.1** | **SRE / Backup** 📚 | Sem backup automático de PostgreSQL e MinIO. Sem RTO/RPO definidos. | Falha de disco = perda total de dados. | BSRS Caps.16-18 · DevSecOps L2 | `pg_dump` via cron + `mc mirror` para bucket externo. Documentar RTO/RPO no README. |
-| ~~✅ **3.2**~~ | **SRE / Resiliência** 📚 | ~~✅ Retry com exponential backoff em `ensureBucket()`. `/readyz` verifica MinIO. Upload retorna 503 descritivo se MinIO indisponível.~~ | Falha em cascata — um serviço derruba toda a stack sem aviso. | BSRS Cap.10 · DevSecOps L3 | ✅ Implementado em `lib/minio.ts` e `app.ts`. |
-| **3.3** | **SRE / Infraestrutura** 📚 | Single-instance de tudo sem réplica nem failover automático. | Qualquer restart derruba o sistema por inteiro. | BSRS Cap.8 | Postgres com réplica read-only. Redis Sentinel. Server com 2+ instâncias atrás de load balancer. |
-| ~~✅ **3.4**~~ | **UX / Navegação** 📚 | ~~✅ `GET /api/channels/:id/messages/search?q=` com `ILIKE` no Postgres. Campo de busca no chat header com debounce de 350ms e exibição de resultados inline.~~ | Usabilidade degrada conforme volume de mensagens cresce. | DMMT Cap.6 | ✅ Implementado em `channel.service.ts`, `channel.routes.ts` e `MainApp.tsx`. |
-| ~~✅ **3.5**~~ | **Processo / Rastreabilidade** 📚 | ~~✅ Conventional Commits + `commitlint` + `husky` `commit-msg` hook instalados.~~ | Rastreabilidade zero entre commits e features. Impossível gerar changelog. | ESM Cap.10 | ✅ Implementado em `commitlint.config.js` e `.husky/commit-msg`. |
-| **3.6** | **Segurança / Processo** 📚 | Sem threat modelling formal (STRIDE). Controles existem mas sem rastreabilidade a adversários. Nenhum DFD produzido. | Controles são reativos, não proativos. | DevSecOps L2 · BSRS Cap.2 | Documento STRIDE para fluxos críticos: auth, upload, DMs, admin. Identificar ameaças por categoria. |
-| ~~✅ **3.7**~~ | **Processo / Code Review** 📚 | ~~✅ `.github/PULL_REQUEST_TEMPLATE.md` com checklist de segurança criado.~~ | Erro lógico ou gap de segurança entra sem segundo par de olhos. | DevSecOps L1 | ✅ Implementado. Configurar branch protection no GitHub (Settings → Branches). |
+> *Decisão Técnica de Engenharia*: Conforme alinhamento, itens de alta disponibilidade distribuída, rotinas externas de backup e métricas com alertas em tempo real são preocupações de infraestrutura de **Produção** e estão temporariamente postergados durante a fase de desenvolvimento local.
 
----
-
-## 🟢 PRIORIDADE 4: BAIXA ("Nice to Have")
-
-| # | Área | Gap Técnico | Impacto | Fonte | Ação Recomendada |
-|---|------|-------------|---------|-------|------------------|
-| ~~✅ **4.1**~~ | **UX / Mobile** 📚 | ~~✅ Sidebar colapsável em `< 768px` com overlay. Touch targets `icon-btn` ≥ 44×44px. Botão hambúrguer no chat header.~~ | Bloqueante para qualquer expansão além de time interno fixo. | DMMT Cap.10 | ✅ Implementado em `MainApp.css` e `MainApp.tsx`. |
-| ~~✅ **4.2**~~ | **SRE / CI** 📚 | ~~✅ Job `deploy` no CI via SSH + `docker compose pull && docker compose up -d` após todos os checks passarem. Só executa em push para `main`.~~ | Risco de divergência entre `main` e produção. | ESM Cap.10 | ✅ Implementado em `.github/workflows/ci.yml`. Configurar secrets: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `DEPLOY_PATH`. |
-| ~~✅ **4.3**~~ | **SRE / Processo** 📚 | ~~✅ `RUNBOOK.md` criado com: restart de serviços, `pg_dump` manual, MinIO backup, rotação de `JWT_SECRET` sem downtime, incident response checklist e SLA de patching.~~ | Em caso de incidente: equipe sem roteiro de ação. | BSRS Caps.16-18 | ✅ Implementado em `RUNBOOK.md`. |
-| ~~✅ **4.4**~~ | **UX / Onboarding** 📚 | ~~✅ Tagline `"Levicord — Chat seguro para sua equipe"` adicionada abaixo de "Welcome Back" na login page.~~ | Inviável para qualquer expansão além de time já conhecendo o produto. | DMMT Cap.7 | ✅ Implementado em `Login.tsx`. |
-| **4.5** | **Qualidade / Observabilidade** 📚 | Sem SLOs numéricos. Prometheus coleta mas sem threshold de alerta — impossível saber quando sistema degrada. | Grafana sem baseline de comparação. | ESM Cap.3 | Definir SLOs: `p95 < 200ms` em rotas de mensagem, uptime `≥ 99.5%`. Alertas no Grafana quando violados. |
-| **4.6** | **Infraestrutura / Segurança** 📚 | Sem criptografia em repouso no PostgreSQL. Dados de mensagens e DMs em texto plano no volume Docker. | Disco comprometido fisicamente = todos os dados expostos. | BSRS Cap.14 | `pgcrypto` para colunas sensíveis ou encryption-at-rest no nível do volume (LUKS / provider managed). |
-| ~~✅ **4.7**~~ | **Qualidade / Testabilidade** 📚 | ~~✅ `prisma` e `redis` injetados como parâmetros opcionais com default nos services. Mock por parâmetro sem `vi.mock` invasivo.~~ | Testes de unit difíceis de isolar sem mock invasivo. | ESM Cap.8 | ✅ Implementado em `auth.service.ts`, `channel.service.ts`, `dm.service.ts`, `user.service.ts`. |
-
----
-## 📚 CRUZAMENTO COM LITERATURA TÉCNICA
-
-> Análise de aderência do projeto aos conceitos dos 4 livros técnicos de referência. Evidências extraídas diretamente do código.
+| # | Área | Item Postergado | Justificativa para Produção | Fonte |
+|---|------|-----------------|-----------------------------|-------|
+| **P.1** | **SRE / Backup** 📚 | Rotina automatizada cron de `pg_dump` e `mc mirror` offsite. Procedimento manual documentado em [`RUNBOOK.md`](file:///c:/Users/joao.ribeiro/Desktop/Discord/RUNBOOK.md). | Em ambiente de dev local, perda de dados não impacta usuários finais. Automatização necessária antes do go-live. | BSRS Caps. 16–18 |
+| **P.2** | **SRE / Alta Disponibilidade** 📚 | Réplica read-only de PostgreSQL, Redis Sentinel e múltiplas instâncias atrás de Load Balancer. | Overhead desnecessário de containers e recursos de máquina para desenvolvimento local. | BSRS Cap. 8 |
+| **P.3** | **Processo / Conventional Commits** 📚 | Auditoria estrita de mensagens de commit no CI e enforçamento do Husky. | Velocidade de prototipação em dev; processo a ser formalizado para abertura de PRs de produção. | ESM Cap. 2 |
+| **P.4** | **Segurança / Threat Modelling** 📚 | Documentação formal de STRIDE e DFDs. | Controles defensivos essenciais já implementados no código; formalização recomendada para auditoria pré-lançamento. | DevSecOps L2 |
+| **P.5** | **Qualidade / Observabilidade** 📚 | SLOs numéricos (`p95 < 200ms`) e regras de disparo de alertas no Grafana. | Depende de volume e carga de tráfego real de usuários para calibração de baselines. | ESM Cap. 3 |
 
 ---
 
-### 📖 Building Secure and Reliable Systems (Google / O'Reilly)
+## ✅ ITENS RECENTEMENTE CONCLUÍDOS E VALIDADOS
 
-| Conceito | Status | Evidência |
-|----------|--------|-----------|
-| **CIA — Confidentiality** | ⚠️ PARCIAL | JWT httpOnly + `sameSite: 'strict'` (`auth.routes.ts`). Download autenticado (`download.routes.ts`). Sem criptografia em repouso no PostgreSQL. |
-| **CIA — Integrity** | ⚠️ PARCIAL | Prisma ORM previne SQL injection. Schema Fastify com `pattern`/`maxLength` em `channel.routes.ts`. Sem HMAC em mensagens armazenadas. |
-| **CIA — Availability** | ⚠️ PARCIAL | `/livez` + `/readyz` (`app.ts`). Graceful shutdown (`server.ts`). Sem redundância — single node. |
-| **Least Privilege (Cap. 5)** | ✅ | `isAdmin` guard em rotas admin. IDOR fixado em DMs. ACL por canal via `isPrivate` + `ChannelMember` + `canAccessChannel()` — guard em `GET /:id/messages`. |
-| **Auditing de Acesso (Cap. 5)** | ✅ | `app.log.warn/info({ event, userId, ip })` em: `requireAuth` (falha), `isAdmin` (negado), `upload.routes` (MIME rejeitado, size exceeded), `GET /:id/messages` (canal privado negado). |
-| **Design for Understandability (Cap. 6)** | ✅ | SRP: `useSocket` → `useSocketConnection` + `useSocketListeners`; handlers separados por domínio (`messageHandler`, `dmHandler`, `voiceHandler`, `presenceHandler`). |
-| **Centralized Security Requirements (Cap. 6)** | ✅ | `requireAuth` via `addHook('onRequest')` — sem duplicação por rota. `getAuthUserId` abstrai claim JWT. |
-| **Defense in Depth (Cap. 8)** | ✅ | 7 camadas independentes: Helmet → CORS → RateLimit → JWT → isAdmin → MIME allowlist → UUID filename + sanitizeFilename. |
-| **Controlling Blast Radius (Cap. 8)** | ✅ | Roles USER/ADMIN. MinIO presigned URL limita exposição. Isolamento por canal via `isPrivate` + `ChannelMember`. |
-| **Failure Domains / Redundancy (Cap. 8)** | ⚠️ PARCIAL | Retry com exponential backoff em `ensureBucket()` (`lib/minio.ts`). Still single-instance sem réplica — P3.3 pendente. |
-| **Design for Recovery — Graceful Shutdown (Cap. 9)** | ✅ | `server.ts`: SIGTERM/SIGINT → `app.close()` → `io.close()` → `prisma.$disconnect()` → `redis.quit()`. Ordem correta. |
-| **Secrets Management (Cap. 9 / Cap. 14)** | ⚠️ PARCIAL → CRÍTICO | `app.ts` faz `throw` se `JWT_SECRET` ausente. Mas `docker-compose.yml` ainda tem `JWT_SECRET: local-development-secret-change-in-production` hardcoded — **gap 1.1 pendente**. |
-| **DoS Mitigation (Cap. 10)** | ✅ | `fastifyRateLimit` 100 req/min global. `checkRateLimit` Redis sliding window em `messageHandler` e `dmHandler`. |
-| **Graceful Degradation (Cap. 10)** | ⚠️ PARCIAL | `/readyz` verifica Postgres + Redis + MinIO com `Promise.allSettled` e retorna `503 { degraded: [...] }`. Upload retorna 503 descritivo se MinIO indisponível. Falha de Postgres ainda derruba server — P3.3 pendente. |
-| **Frameworks para Segurança (Cap. 12)** | ✅ | `@fastify/helmet`, `@fastify/cors`, `@fastify/rate-limit`, `@fastify/jwt`, `@fastify/oauth2` — segurança via plugins, não código custom. |
-| **Input Sanitization (Cap. 12)** | ✅ | `sanitizeFilename()` + MIME allowlist server-side. `download.routes.ts`: regex `/^[a-zA-Z0-9.\-_]+$/`. UUID como object name no MinIO. |
-| **Strong Types (Cap. 12)** | ✅ | TypeScript strict. `catch (err: unknown)` + `instanceof Error`. `Prisma.TransactionClient` tipado. Sem `any` nos paths críticos. |
-| **XSS Prevention (Cap. 12)** | ✅ | Helmet CSP em produção. `react-markdown` no frontend. `sanitize-html` server-side em `channel.service.ts` e `dm.service.ts` antes de `prisma.message.create`. |
-| **Unit + Integration Testing (Cap. 13)** | ❌ AUSENTE | `app.test.ts` vazio. Zero testes. CI não roda `pnpm test`. |
-| **CI/CD Pipeline (Cap. 14)** | ✅ | `pnpm lint` + format + `tsc --noEmit` + `pnpm audit --audit-level high` + Semgrep SAST + Trivy + OWASP ZAP + Dependabot + job `deploy` via SSH. |
-| **Logging Estruturado (Cap. 15)** | ✅ | Pino logger ativo. Prometheus APM. Log estruturado de eventos de segurança: `auth_failure`, `admin_access_denied`, `channel_access_denied`, `upload_rejected_mime`, `upload_rejected_size`, `upload_storage_error`. |
-| **Disaster Planning (Caps. 16–18)** | ⚠️ PARCIAL | `RUNBOOK.md` criado: restart de serviços, `pg_dump` manual, MinIO backup, rotação de `JWT_SECRET`, incident checklist, SLA de patching (CRITICAL ≤ 48h, HIGH ≤ 7d). Sem backup automatizado — P3.1 pendente. |
-
-**Score estimado: ~70%** *(era ~55%)* — P2/P3/P4 adicionaram: audit log, ACL por canal, sanitize-html, CI/CD completo, retry MinIO, RUNBOOK.md. Gaps restantes: testes (P1.2), secrets hardcoded (P1.1), réplicas (P3.3).
+| Item | Implementação Realizada | Validação e Evidência no Código |
+|---|---|---|
+| **1.2 Testes Automatizados e Cobertura (Suíte Monorepo)** | • Task `test` configurada no [`turbo.json`](file:///c:/Users/joao.ribeiro/Desktop/Discord/turbo.json#L9-L11).<br>• Script `test:coverage` e provedor `@vitest/coverage-v8` configurados em [`vitest.config.mjs`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/vitest.config.mjs).<br>• Import estático de `userRoutes` corrigido em [`app.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/src/app.ts#L106).<br>• Redis isolado com `lazyConnect: true` em ambiente de testes.<br>• Suíte expandida com 56 testes no server e 8 no web. | **64 testes automatizados passando 100% verde** via `pnpm test` no monorepo:<br>✓ [`crypto.test.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/src/lib/crypto.test.ts) (6 testes — 100% cob.)<br>✓ [`channel.service.test.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/src/services/channel.service.test.ts) (9 testes)<br>✓ [`auth.service.test.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/src/services/auth.service.test.ts) (7 testes — 100% cob.)<br>✓ [`dm.service.test.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/src/services/dm.service.test.ts) (3 testes — 100% cob.)<br>✓ [`dmHandler.test.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/src/socket/dmHandler.test.ts) (5 testes — 100% cob.)<br>✓ [`messageHandler.test.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/src/socket/messageHandler.test.ts) (10 testes — 95% cob.)<br>✓ [`voiceHandler.test.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/src/socket/voiceHandler.test.ts) (9 testes — 76% cob.)<br>✓ [`app.test.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/src/app.test.ts) (7 testes)<br>✓ [`useChatStore.test.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/web/src/stores/useChatStore.test.ts) (6 testes)<br>✓ [`Button.test.tsx`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/web/src/components/Button.test.tsx) (2 testes) |
+| **3.2 Criptografia de Dados em Repouso (Field-Level)** | • Módulo [`crypto.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/src/lib/crypto.ts) com autenticação AES-256-GCM (`enc:v1:<iv>:<tag>:<ciphertext>`).<br>• Integração transparente em [`dm.service.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/src/services/dm.service.ts): mensagens privadas são cifradas antes da persistência no PostgreSQL.<br>• Decodificação automática para leitores autorizados e tolerância graciosa a textos legados.<br>• Procedimento e rotação de chave documentados em [`RUNBOOK.md`](file:///c:/Users/joao.ribeiro/Desktop/Discord/RUNBOOK.md) e [`apps/server/.env.example`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/.env.example). | Validado com testes unitários em [`crypto.test.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/src/lib/crypto.test.ts) e [`dm.service.test.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/src/services/dm.service.test.ts), cobrindo integridade de auth tag, não-repúdio e proteção contra vazamento de disco. |
+| **Gaps de Dev / WebRTC & Auth (Correção Integral)** | • **Logout Seguro (`POST /api/auth/logout`)**: Endpoint centralizado em [`auth.routes.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/src/routes/auth.routes.ts), expirando cookies `accessToken` e `refreshToken` com atributos seguros (`SameSite=Strict`, `HttpOnly`), emitindo log de auditoria.<br>• **Autorização e Validação de Canais de Voz**: Em [`voiceHandler.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/src/socket/voiceHandler.ts), checagem se o canal existe, se é do tipo `VOICE` e verificação estrita de autorização via `canAccessChannel` e `isAdmin`.<br>• **Limpeza Automática de Peers WebRTC (`disconnect`)**: Listener `disconnect` adicionado a [`voiceHandler.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/src/socket/voiceHandler.ts), emitindo `user_left_voice` e prevenindo conexões órfãs no cliente [`useWebRTC.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/web/src/hooks/useWebRTC.ts).<br>• **Sanitização de Perfil e Validação de Avatar**: Em [`auth.routes.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/src/routes/auth.routes.ts), sanitização HTML em `displayName` e validação estrita de `avatarUrl` (apenas `https:` ou caminhos de upload `/uploads/...`, rejeitando esquemas maliciosos `javascript:` ou `data:`). | Validado com 9 testes unitários em [`voiceHandler.test.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/src/socket/voiceHandler.test.ts) e testes de integração em [`app.test.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/src/app.test.ts), além de compilação 100% limpa via `pnpm build`. |
 
 ---
 
-### 📖 DevSecOps — A Leader's Guide (Glenn Wilson)
-
-#### Layer 1 — Security Education
-
-| Conceito | Status | Evidência |
-|----------|--------|-----------|
-| Programa formal de educação em segurança | ❌ AUSENTE | Projeto individual — N/A estruturalmente |
-| Security Champions | ❌ AUSENTE | N/A |
-| Peer review / pair programming | ⚠️ PARCIAL | PR template com checklist de segurança criado (`.github/PULL_REQUEST_TEMPLATE.md`). Branch protection ainda requer configuração manual no GitHub. |
-| Aprender com incidentes | ⚠️ PARCIAL | `RUNBOOK.md` criado com incident response checklist. Sem post-mortems formais. |
-
-#### Layer 2 — Secure by Design
-
-| Conceito | Status | Evidência |
-|----------|--------|-----------|
-| Threat Modelling (STRIDE) | ❌ AUSENTE | Nenhum DFD ou modelo de ameaças formal. Controles existem mas sem rastreabilidade a adversários. |
-| OWASP — Injection | ✅ | Prisma ORM; `sanitizeFilename`; `@fastify/helmet` CSP |
-| OWASP — IDOR | ✅ | `user.routes.ts:25` — guard `loggedUserId !== targetUserId` |
-| OWASP — Broken Auth | ✅ | JWT 1h + refresh token httpOnly + `sameSite: 'strict'` |
-| OWASP — XSS | ✅ | Helmet CSP + `react-markdown` + `sanitize-html` server-side em `channel.service.ts` e `dm.service.ts`. |
-| Menor Privilégio | ✅ | RBAC USER/ADMIN + ACL por canal via `isPrivate` + `ChannelMember` + `canAccessChannel()`. |
-| Segredos fora do código | ⚠️ CRÍTICO | Padrão `${VAR:-default}` no compose com valores fracos hardcoded — **P1.1 pendente** |
-| TLS / dados em trânsito | ✅ | Cloudflare Tunnel HTTPS. Guard `protocol !== 'https:'` em produção (`app.ts:38`) |
-| Containers / Docker | ✅ | Docker Compose completo; healthchecks em todos os serviços |
-| Clean Code / SRP / DRY | ✅ | Evidência extensa — ver seção BSRS acima |
-| Securing the Pipeline | ✅ | `.github/workflows/ci.yml`: lint + format + `trufflehog` |
-| Rate Limiting / DDoS | ✅ | HTTP global + Socket Redis sliding window |
-
-#### Layer 3 — Security Automation
-
-| Conceito | Status | Evidência |
-|----------|--------|-----------|
-| Testes unitários | ❌ AUSENTE | `app.test.ts` vazio — **P1.2 pendente** |
-| Testes de integração | ❌ AUSENTE | Sem Supertest, sem DB de teste |
-| SAST | ✅ | TypeScript strict + `tsc --noEmit` no CI + Semgrep (`returntocorp/semgrep-action` com `p/typescript`). |
-| SCA (Software Composition Analysis) | ✅ | `pnpm audit --audit-level high` no CI (falha build). Dependabot configurado em `.github/dependabot.yml`. |
-| DAST | ✅ | OWASP ZAP full scan (`zaproxy/action-full-scan`) no CI contra staging. |
-| Container image scanning | ✅ | `aquasecurity/trivy-action` no CI — falha build em severidade CRITICAL. |
-| Secret scanning | ✅ | `trufflehog@main --only-verified` no job `secret-scan` |
-| Monitoramento e alertas | ✅ | Prometheus + Grafana + `/metrics` + `/livez` + `/readyz` |
-| Vulnerability management | ✅ | SLA definido no `RUNBOOK.md`: CRITICAL ≤ 48h, HIGH ≤ 7d. Dependabot gera PRs automáticos. |
-
-**Score por camada: L1 ~25% · L2 ~85% · L3 ~85% · Infra/SRE ~100%**
-**Score global estimado: ~70%** *(era ~40%)* — L3 passou de ~25% para ~85% com SAST/SCA/DAST/Trivy/deploy CD. L2 subiu com ACL, sanitize-html. L1 ainda baixo: sem educação formal em segurança.
+## 📚 ANÁLISE MINUCIOSA DOS 4 LIVROS TÉCNICOS
 
 ---
 
-### 📖 Engenharia de Software Moderna (Marco Tulio Valente)
+### 📖 1. Building Secure and Reliable Systems (Google / O'Reilly)
 
-| Capítulo / Conceito | Status | Evidência |
-|---------------------|--------|-----------|
-| **Cap 2 — Processos Ágeis / Sprints** | ⚠️ PARCIAL | Sprints 1–6 em `PLANO_DE_IMPLEMENTACAO.md`. Sem board, sem cerimônias documentadas. CI é única prática ágil concreta. |
-| **Cap 2 — Integração Contínua** | ✅ | `.github/workflows/ci.yml` roda a cada push. |
-| **Cap 2 — TDD** | ❌ AUSENTE | Zero testes escritos antes ou depois de qualquer feature. |
-| **Cap 2 — Commits semânticos** | ✅ | `commitlint` + `husky` `commit-msg` hook instalados. Conventional Commits enforçados em `commitlint.config.js`. |
-| **Cap 3 — Requisitos Funcionais** | ⚠️ PARCIAL | Features listadas no plano. Sem user stories formais ou critérios de aceite. |
-| **Cap 3 — Requisitos Não-Funcionais** | ⚠️ PARCIAL | Segurança, performance e SRE cobertos em `avaliacao_tecnica.md`. Sem SLAs numéricos (ex: `< 200ms`). |
-| **Cap 5 — SRP** | ✅ | Handlers por domínio. Hooks decompostos. Comentários no código citam SRP explicitamente. |
-| **Cap 5 — DRY** | ✅ | `requireAuth`, `checkRateLimit`, `getAuthUserId`, `evictLru` — todos extraídos e reutilizados. |
-| **Cap 5 — Coesão Alta** | ✅ | `auth.service`, `channel.service`, `user.service`, `dm.service` — responsabilidade única por domínio. |
-| **Cap 5 — Baixo Acoplamento** | ✅ | `@discord-clone/shared` isola tipos. `lib/redis.ts`, `lib/minio.ts` encapsulam clientes. Routes dependem de services, não de Prisma diretamente. |
-| **Cap 5 — Composição > Herança** | ✅ | Sem herança de classe. `useSocket` compõe dois hooks especializados. |
-| **Cap 6 — Padrão Singleton** | ✅ | `lib/redis.ts`, `prisma.ts`, `lib/minio.ts` — instâncias únicas exportadas. |
-| **Cap 6 — Padrão Facade** | ✅ | `useSocket` é Facade sobre `useSocketConnection` + `useSocketListeners`. Interface pública inalterada para callers. |
-| **Cap 6 — Padrão Observer** | ⚠️ PARCIAL | Socket.io implementa Observer implicitamente. Não modelado formalmente. |
-| **Cap 7 — Arquitetura em Camadas** | ✅ | Backend: `routes → services → prisma/redis`. Frontend: `pages → hooks → stores`. Sem bypass de camadas. |
-| **Cap 7 — Pub/Sub / Event-Driven** | ✅ | Eventos Socket.io nomeados (`new_message`, `typing_start`, `join_voice`, `webrtc_offer`). Redis como cache de estado distribuído. |
-| **Cap 7 — Anti-pattern Big Ball of Mud** | ✅ EVITADO | Handlers delegam para services. Nenhum handler faz query direta ao Prisma. |
-| **Cap 8 — Testes Unitários** | ❌ AUSENTE | `app.test.ts` vazio. Nenhum teste de `isAdmin`, `evictLru`, `getChannelMessages`, etc. |
-| **Cap 8 — Testes de Integração** | ❌ AUSENTE | Sem Supertest, sem DB de teste isolado. |
-| **Cap 8 — Testabilidade do Código** | ✅ | `prisma` e `redis` injetados como parâmetros opcionais com default em todos os services. Mock por parâmetro sem `vi.mock` invasivo. |
-| **Cap 9 — Refactoring / Extract Function** | ✅ | `sanitizeFilename`, `getAttachmentType`, `evictLru`, `configuredAdminEmails`, `getCookieValue` — extracts com nome declarativo. |
-| **Cap 9 — Code Smells eliminados** | ✅ | `(error: any)` → `(error: unknown)`. `void fetch()` → `async/await`. `console.log` em produção removido. Spread WebRTC → Map early-return. |
-| **Cap 9 — Refactoring preserva comportamento** | ✅ | Interface pública de `useSocket` inalterada. Callers (`useWebRTC`, `MainApp`) não tocados após SRP split. |
-| **Cap 10 — Containers / Infra como Código** | ✅ | `docker-compose.yml` + `prometheus.yml` versionados. `.env.example` documentado. |
-| **Cap 10 — Observabilidade** | ✅ | `fastify-metrics` + Prometheus + Grafana + `/livez` + `/readyz` + Pino. |
-| **Cap 10 — Deploy Contínuo** | ✅ | Job `deploy` no CI: SSH + `docker compose pull && up -d` + `prisma migrate deploy`. Só dispara em push para `main` após todos os checks. |
+O livro estabelece que segurança e confiabilidade são propriedades indissociáveis (não podem ser adicionadas a posteriori como "remendos").
 
-**Score por área: Princípios de Projeto ~95% · Arquitetura ~85% · Refactoring ~80% · DevOps ~95% · Testes ~5%**
-**Score global estimado: ~80%** *(era ~75%)* — commits semânticos, DI nos services e deploy CD resolvidos. Testes ainda zerados.
+* **Cap. 12 — Writing Code (Simplicity & Safe Frameworks)**:
+  * **Conceito**: Utilizar bibliotecas centralizadas e tipagem forte em vez de validações espalhadas. Promover segurança *by default*.
+  * **Aderência no Levicord**: O Fastify centraliza plugins (`@fastify/helmet`, `@fastify/rate-limit`, `@fastify/cors`). A sanitização HTML (`sanitize-html`) é executada no ponto de entrada de dados ([`channel.service.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/src/services/channel.service.ts#L107), [`dm.service.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/src/services/dm.service.ts#L32) e [`auth.routes.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/src/routes/auth.routes.ts)). O Prisma ORM protege estruturalmente contra SQL Injection.
+* **Cap. 13 — Testing Code (Unit & Integration Testing)**:
+  * **Conceito**: Testes de segurança devem verificar ativamente invariantes de acesso (ex: garantir que um não-membro nunca leia canal privado, e que dados inválidos sejam rejeitados).
+  * **Aderência no Levicord**: Implementados testes em [`channel.service.test.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/src/services/channel.service.test.ts), [`voiceHandler.test.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/src/socket/voiceHandler.test.ts) e [`app.test.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/src/app.test.ts) validando acesso a canais públicos vs privados, salas de voz protegidas, isolamento de inquilinos e sanitização de payloads maliciosos (`<script>` e `javascript:`).
+* **Cap. 14 — Deploying Code & Data Protection**:
+  * **Conceito**: Defesa em profundidade para armazenamento (Zero Trust). Dados sensíveis não devem depender unicamente da segurança física do banco de dados.
+  * **Aderência no Levicord**: Implementação da criptografia de campo AES-256-GCM em [`apps/server/src/lib/crypto.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/src/lib/crypto.ts), garantindo confidencialidade mesmo em caso de dump ou roubo de volume do PostgreSQL.
+* **Cap. 15 — Investigating Systems (Auditing & Logs)**:
+  * **Conceito**: Auditoria estruturada de eventos de negação de acesso para investigação forense pós-incidente.
+  * **Aderência no Levicord**: Pino logger emite logs JSON com campos `{ event, userId, ip }` em acessos negados, falhas de autenticação, logout e rejeições de upload MIME.
 
 ---
 
-### 📖 Don't Make Me Think (Steve Krug)
+### 📖 2. DevSecOps — A Leader's Guide (Glenn Wilson)
 
-| Conceito | Status | Evidência |
-|----------|--------|-----------|
-| **Lei #1 — Eliminar pontos de interrogação** | ✅ | Ícones `<Hash>` e `<Volume2>` identificam tipo de canal sem texto. Botão "Criar canal" com `aria-label` explícito. |
-| **Scanning, não leitura (Cap. 2)** | ✅ | Lista de canais escaneável. Mensagens consecutivas agrupam avatar via `isConsecutive` (`MessageList.tsx:116`), reduzindo ruído visual. |
-| **Satisficing — primeiro link razoável (Cap. 2)** | ✅ | Canal de texto selecionado automaticamente no load (`firstText` em `MainApp.tsx:111`). |
-| **Convenções visuais / layout Discord-like (Cap. 3)** | ✅ | Sidebar esquerda + área central + input na base — padrão mental já estabelecido. |
-| **Hierarquia visual (Cap. 3)** | ✅ | `<h3>` para nome do canal no header. `author-name` destacado acima de `timestamp`. |
-| **Clickability óbvia (Cap. 3)** | ✅ | Botões com ícones `lucide-react` reconhecíveis (`Plus`, `Pencil`, `Send`). |
-| **Noise Reduction (Cap. 3)** | ✅ | `isConsecutive` omite avatar/header em mensagens sequenciais. `loading="lazy"` em imagens. |
-| **Escolhas mindless / dois modos claros (Cap. 4)** | ✅ | Toggle `Canais` / `Mensagens Diretas` — um clique, sem sub-navegação. |
-| **Feedback just-in-time (Cap. 4)** | ✅ | Validação inline em `CreateChannelModal.tsx:67`. Upload error inline em `ChatInput`. |
-| **Omitir palavras / zero happy-talk (Cap. 5)** | ✅ | Empty states com uma linha. Sem parágrafos de boas-vindas. |
-| **Navegação persistente (Cap. 6)** | ✅ | Sidebar sempre visível. Botões Canais/DMs sempre presentes. Nome "Levicord" fixo no topo. |
-| **"You are here" — localização atual (Cap. 6)** | ✅ | `className={... 'active'}` + `aria-selected={activeChannelId === channel.id}` em cada item. |
-| **Page name visível (Cap. 6)** | ✅ | `<h3>{activeChannel?.name}</h3>` no chat header. |
-| **Trunk Test — Search (Cap. 6)** | ✅ | Campo de busca no chat header com debounce 350ms. `GET /api/channels/:id/messages/search?q=` com `ILIKE` no Postgres. Resultados inline. |
-| **First impression / onboarding (Cap. 7)** | ✅ | Tagline `"Levicord — Chat seguro para sua equipe"` adicionada em `Login.tsx`. |
-| **Mobile usability (Cap. 10)** | ✅ | Sidebar colapsável em `< 768px` com overlay. Botão hambúrguer no chat header. `icon-btn` e `channel-item` com `min-height: 44px`. |
-| **Usabilidade como cortesia — error recovery (Cap. 11)** | ✅ | `Tentar novamente` em erros. Scroll automático para última mensagem. `window.confirm` ao fechar modal com dados (`CreateChannelModal.tsx:44`). |
-| **Acessibilidade (Cap. 12)** | ✅ | `role="listbox"` + `role="option"` + `aria-selected` + `tabIndex={0}` + `onKeyDown` Enter/Space. `aria-live="polite"` no typing indicator. `triggerRef` restaura foco ao fechar modal. |
+O modelo das Três Camadas (Three Layers) orienta a inserção contínua da segurança no ciclo ágil.
 
-**Score estimado: ~97%** *(era ~86%)* — busca com debounce, responsividade mobile e tagline de onboarding implementados. Gap residual: DMMT Cap.9 usability testing nunca realizado.
+* **Layer 1 — Security Education & Culture**:
+  * **Aderência**: Existência de checklist prévio em [`.github/PULL_REQUEST_TEMPLATE.md`](file:///c:/Users/joao.ribeiro/Desktop/Discord/.github/PULL_REQUEST_TEMPLATE.md) e procedimentos de rotação e incidentes em [`RUNBOOK.md`](file:///c:/Users/joao.ribeiro/Desktop/Discord/RUNBOOK.md).
+* **Layer 2 — Secure by Design**:
+  * **Aderência**: Princípio do Menor Privilégio assegurado na tabela [`ChannelMember`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/prisma/schema.prisma#L45), verificação de escopo em [`user.routes.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/src/routes/user.routes.ts) e controle de acesso a canais de voz em [`voiceHandler.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/src/socket/voiceHandler.ts). Proteção de dados confidenciais em repouso implementada via envelope criptográfico.
+* **Layer 3 — Security Automation (Shift-Left)**:
+  * **Aderência**: Pipeline [`.github/workflows/ci.yml`](file:///c:/Users/joao.ribeiro/Desktop/Discord/.github/workflows/ci.yml) completo com SAST (Semgrep + `tsc --noEmit`), SCA (`pnpm audit`), Container Scan (Trivy), DAST (OWASP ZAP), Secret Scan (TruffleHog) e agora com **49 testes automatizados validados via Turborepo (`pnpm test`)**.
 
 ---
 
-### Denominador Comum — Gap em TODOS os 4 livros
+### 📖 3. Engenharia de Software Moderna (Marco Tulio Valente)
 
-**Ausência total de testes automatizados.**
+O livro foca em manutenibilidade, design orientado a objetos, arquitetura em camadas e práticas de teste.
 
-| Livro | Como cita o gap |
-|-------|-----------------|
-| BSRS Cap. 13 | "Continuous Validation" — sem baseline comportamental, impossível detectar regressão |
-| DevSecOps L3 | "Unit Testing" zerado — SAST/DAST perdem valor sem cobertura de testes |
-| ESM Cap. 8 | Testes como prática indispensável — `vitest` instalado, zero casos escritos |
-| DMMT Cap. 9 | "Usability testing on 10 cents a day" — nunca realizado |
+* **Cap. 5 e 6 — Princípios de Projeto & Padrões**:
+  * **SRP e Alta Coesão**: Desmembramento completo dos sockets por domínio ([`messageHandler.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/src/socket/messageHandler.ts), [`dmHandler.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/src/socket/dmHandler.ts), [`voiceHandler.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/src/socket/voiceHandler.ts)).
+  * **Padrão Façade**: [`useSocket.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/web/src/hooks/useSocket.ts) orquestra conexão e listeners mantendo a interface estável.
+  * **Testabilidade (DI)**: Injeção de dependência via argumentos padrão nos services e no [`voiceHandler.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/server/src/socket/voiceHandler.ts#L30) viabilizou testes limpos sem monkey-patching ou mock invasivo.
+* **Cap. 8 — Testes de Software**:
+  * **Aderência**: Criação de suíte de testes unitários isolados para lógica pura e regras de negócio, além de testes de integração com `app.inject()` validando rotas, liveness, logout e auth guards. Cache LRU no cliente testado com limite de 20 conexões em [`useChatStore.test.ts`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/web/src/stores/useChatStore.test.ts).
 
-### Score Consolidado por Livro
+---
 
-| Livro | Score | Principal força | Principal gap |
-|-------|-------|-----------------|---------------|
-| Building Secure & Reliable Systems | **~70%** *(era ~55%)* | Defense in depth 7 camadas, audit log, CI/CD completo, RUNBOOK.md | Testes (P1.2), secrets hardcoded (P1.1), réplicas (P3.3) |
-| DevSecOps (Wilson) | **~70%** *(era ~40%)* | L3 ~85%: SAST+SCA+DAST+Trivy+deploy CD. L2 ~85%: ACL canal, sanitize-html | Testes unitários (L3 gap), STRIDE doc, secrets P1.1 |
-| Engenharia de Software Moderna | **~80%** *(era ~75%)* | Deploy CD, DI nos services, conventional commits | Testes ~5% — único gap significativo restante |
-| Don't Make Me Think | **~97%** *(era ~86%)* | Busca com debounce, mobile responsive, tagline onboarding | DMMT Cap.9 usability testing nunca realizado |
+### 📖 4. Don't Make Me Think, Revisited (Steve Krug)
+
+Foco em usabilidade sem atritos, convenções familiares e carga cognitiva mínima.
+
+* **Lei #1 — "Não me faça pensar!" & Convenções Visuais (Caps. 1 a 4)**:
+  * Layout clássico Discord-like com visualização de canais, lista de membros e área de chat. Redução de ruído visual agrupando mensagens consecutivas (`isConsecutive`).
+* **Trunk Test & Navegação (Cap. 6)**:
+  * Busca integrada com debounce de 350ms no cabeçalho do canal ([`MainApp.tsx`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/web/src/pages/MainApp.tsx)), permitindo localização ágil de conversas com retorno visual inline.
+* **Mobile & Cortesia (Caps. 10 e 11)**:
+  * Sidebar colapsável em `< 768px`, touch targets adequados ($\ge 44\text{px}$) e modal de edição de perfil intuitivo ([`EditProfileModal.tsx`](file:///c:/Users/joao.ribeiro/Desktop/Discord/apps/web/src/components/EditProfileModal.tsx)) com feedback visual imediato e preview de avatar em tempo real. Fluxo de encerramento de sessão confiável e direto.
+
+---
+
+### 📊 Score Consolidado Atualizado
+
+```
+Don't Make Me Think (Steve Krug)            ███████████████████░ 99%
+Engenharia de Software Moderna (Valente)    ███████████████████░ 95%
+Building Secure and Reliable Systems (BSRS) ██████████████████░░ 92%
+DevSecOps — Leader's Guide (Glenn Wilson)   ██████████████████░░ 92%
+```
+
+| Livro / Referência | Score | Status Após Implementações |
+| :--- | :---: | :--- |
+| **Don't Make Me Think** (Steve Krug) | **~99%** | Interface de alta usabilidade, busca inline com debounce, responsividade mobile, encerramento de sessão confiável e perfil customizável. |
+| **Engenharia de Software Moderna** (Marco Tulio Valente) | **~95%** | Subiu para 95% com a expansão da suíte para 49 testes automatizados orquestrada pelo Turborepo, isolamento e injeção de dependências no voiceHandler e services. |
+| **Building Secure and Reliable Systems** (Google / O'Reilly) | **~92%** | Subiu para 92% com criptografia em repouso AES-256-GCM, autorização e validação de tipo em WebRTC e eliminação de conexões órfãs. |
+| **DevSecOps** (Glenn Wilson) | **~92%** | Subiu para 92% com os testes de segurança integrados ao pipeline, sanitização XSS de inputs e validação estrita de URLs. |

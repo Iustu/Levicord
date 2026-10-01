@@ -23,12 +23,7 @@ export default async function userRoutes(fastify: FastifyInstance) {
       const { cursor } = request.query;
 
       // Authorization: only the logged-in user can read their own DM history.
-      // Fixes IDOR — previously any authenticated user could read any other user's DMs.
-      if (loggedUserId !== targetUserId) {
-        const messages = await getDirectMessages(loggedUserId, targetUserId, 50, cursor);
-        return reply.send(messages.reverse());
-      }
-
+      // Fixes IDOR — messages are scoped strictly between loggedUserId and targetUserId.
       const messages = await getDirectMessages(loggedUserId, targetUserId, 50, cursor);
       return reply.send(messages.reverse());
     },

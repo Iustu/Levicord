@@ -23,11 +23,25 @@ const dmSchema = z.object({
 const DM_LIMIT = 30;
 const DM_WINDOW_SECONDS = 60;
 
+export interface DmHandlerDeps {
+  createDirectMessage: typeof createDirectMessage;
+  checkRateLimit: typeof checkRateLimit;
+}
+
 /**
  * Registers the direct message event handler on a socket.
  * (Engenharia de Software — SRP: each handler file owns one domain)
  */
-export function registerDmHandler(io: Server, socket: Socket, userId: string, log: { error: (...args: unknown[]) => void }) {
+export function registerDmHandler(
+  io: Server,
+  socket: Socket,
+  userId: string,
+  log: { error: (...args: unknown[]) => void },
+  deps: DmHandlerDeps = {
+    createDirectMessage,
+    checkRateLimit,
+  }
+) {
   socket.on('send_dm', async (data: unknown) => {
     const result = dmSchema.safeParse(data);
     if (!result.success) {
@@ -35,7 +49,7 @@ export function registerDmHandler(io: Server, socket: Socket, userId: string, lo
       return;
     }
 
-    const allowed = await checkRateLimit(
+    const allowed = await deps.checkRateLimit(
       `socket_dm_rate:${userId}`,
       DM_LIMIT,
       DM_WINDOW_SECONDS,
@@ -46,7 +60,7 @@ export function registerDmHandler(io: Server, socket: Socket, userId: string, lo
     }
 
     try {
-      const dm = await createDirectMessage(
+      const dm = await deps.createDirectMessage(
         result.data.content || null,
         userId,
         result.data.receiverId,

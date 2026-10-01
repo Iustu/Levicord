@@ -12,6 +12,7 @@ import authRoutes from './routes/auth.routes';
 import channelRoutes from './routes/channel.routes';
 import uploadRoutes from './routes/upload.routes';
 import downloadRoutes from './routes/download.routes';
+import userRoutes from './routes/user.routes';
 import { prisma } from './prisma';
 import { redis } from './socket';
 import { checkMinioHealth } from './lib/minio';
@@ -90,7 +91,9 @@ export function buildApp(): FastifyInstance {
   });
 
   // APM metrics (Prometheus-compatible /metrics endpoint)
-  app.register(fastifyMetrics, { endpoint: '/metrics' });
+  if (process.env.NODE_ENV !== 'test') {
+    app.register(fastifyMetrics, { endpoint: '/metrics' });
+  }
 
   // Socket.io
   app.register(require('fastify-socket.io'), {
@@ -104,7 +107,7 @@ export function buildApp(): FastifyInstance {
   // Routes
   app.register(authRoutes, { prefix: '/api/auth' });
   app.register(channelRoutes, { prefix: '/api/channels' });
-  app.register(require('./routes/user.routes').default, { prefix: '/api/users' });
+  app.register(userRoutes, { prefix: '/api/users' });
   app.register(uploadRoutes, { prefix: '/api/upload' });
   app.register(downloadRoutes, { prefix: '/uploads' });
 
@@ -136,12 +139,6 @@ export function buildApp(): FastifyInstance {
   });
 
   app.get('/', async () => ({ status: 'ok' }));
-
-  app.post('/api/auth/logout', async (_request, reply) => {
-    reply.clearCookie('accessToken', { path: '/' });
-    reply.clearCookie('refreshToken', { path: '/' });
-    return { status: 'ok' };
-  });
 
   return app;
 }

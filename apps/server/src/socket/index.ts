@@ -52,7 +52,7 @@ export function setupSockets(app: FastifyInstance) {
       registerPresenceHandler(socketApp.io, socket, userId);
       registerMessageHandler(socketApp.io, socket, userId, app.log);
       registerDmHandler(socketApp.io, socket, userId, app.log);
-      registerVoiceHandler(socketApp.io, socket, userId);
+      registerVoiceHandler(socketApp.io, socket, userId, app.log);
     });
   });
 }

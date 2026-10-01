@@ -24,18 +24,36 @@ const messageSchema = z.object({
 const MESSAGE_LIMIT = 30;
 const MESSAGE_WINDOW_SECONDS = 60;
 
+export interface MessageHandlerDeps {
+  createMessage: typeof createMessage;
+  canAccessChannel: typeof canAccessChannel;
+  isAdmin: typeof isAdmin;
+  checkRateLimit: typeof checkRateLimit;
+}
+
 /**
  * Registers the channel message event handler on a socket.
  * (Engenharia de Software — SRP: each handler file owns one domain)
  */
-export function registerMessageHandler(io: Server, socket: Socket, userId: string, log: { error: (...args: unknown[]) => void }) {
+export function registerMessageHandler(
+  io: Server,
+  socket: Socket,
+  userId: string,
+  log: { error: (...args: unknown[]) => void },
+  deps: MessageHandlerDeps = {
+    createMessage,
+    canAccessChannel,
+    isAdmin,
+    checkRateLimit,
+  }
+) {
   socket.on('join_channel', async (channelId: string) => {
     if (!z.string().cuid().safeParse(channelId).success) {
       socket.emit('error', { message: 'Invalid channel ID' });
       return;
     }
 
-    if (!(await canAccessChannel(channelId, userId, await isAdmin(userId)))) {
+    if (!(await deps.canAccessChannel(channelId, userId, await deps.isAdmin(userId)))) {
       log.error({ event: 'socket_access_denied', userId, channelId }, 'User attempted to join private channel without access');
       socket.emit('error', { message: 'Access denied to this channel' });
       return;
@@ -71,7 +89,7 @@ export function registerMessageHandler(io: Server, socket: Socket, userId: strin
       return;
     }
 
-    const allowed = await checkRateLimit(
+    const allowed = await deps.checkRateLimit(
       `socket_message_rate:${userId}`,
       MESSAGE_LIMIT,
       MESSAGE_WINDOW_SECONDS,
@@ -82,7 +100,7 @@ export function registerMessageHandler(io: Server, socket: Socket, userId: strin
     }
 
     try {
-      const message = await createMessage(
+      const message = await deps.createMessage(
         result.data.content || null,
         userId,
         result.data.channelId,

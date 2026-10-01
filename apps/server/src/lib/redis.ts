@@ -4,7 +4,20 @@ import Redis from 'ioredis';
  * Shared Redis client — single instance exported to avoid multiple connections.
  * (Engenharia de Software — DRY, Singleton pattern)
  */
-export const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
+const isTest = process.env.NODE_ENV === 'test';
+
+export const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', {
+  lazyConnect: isTest,
+  enableOfflineQueue: !isTest,
+  retryStrategy: isTest ? () => null : (times) => Math.min(times * 100, 3000),
+  maxRetriesPerRequest: isTest ? 1 : 20,
+});
+
+redis.on('error', (err) => {
+  if (!isTest) {
+    console.error('[redis] connection error:', err);
+  }
+});
 
 /**
  * Checks a sliding-window rate limit for a given key.

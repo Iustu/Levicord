@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import sanitizeHtml from 'sanitize-html';
 import { processGoogleUser, updateUserProfile } from '../services/auth.service';
 import { prisma } from '../prisma';
 
@@ -72,6 +73,20 @@ export default async function authRoutes(fastify: FastifyInstance) {
     }
   });
 
+  fastify.post('/logout', async (request, reply) => {
+    const isProduction = process.env.NODE_ENV === 'production';
+    const cookieOptions = {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'strict' as const,
+      path: '/',
+    };
+    reply.clearCookie('accessToken', cookieOptions);
+    reply.clearCookie('refreshToken', cookieOptions);
+    request.log.info({ event: 'auth_logout', ip: request.ip }, 'User logged out');
+    return reply.send({ status: 'ok' });
+  });
+
   fastify.patch<{ Body: { displayName?: string; avatarUrl?: string | null } }>('/profile', {
     schema: {
       body: {
@@ -87,7 +102,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
       try {
         await request.jwtVerify();
       } catch (err) {
-        reply.send(err);
+        return reply.code(401).send({ message: 'Unauthenticated' });
       }
     },
   }, async (request, reply) => {
@@ -97,15 +112,37 @@ export default async function authRoutes(fastify: FastifyInstance) {
     const dataToUpdate: { displayName?: string; avatarUrl?: string | null } = {};
 
     if (displayName !== undefined) {
-      const trimmed = displayName.trim();
-      if (trimmed.length < 2) {
-        return reply.code(400).send({ message: 'Display name must contain at least 2 characters' });
+      const sanitized = sanitizeHtml(displayName.trim(), {
+        allowedTags: [],
+        allowedAttributes: {},
+      });
+      if (sanitized.length < 2 || sanitized.length > 32) {
+        return reply.code(400).send({ message: 'Display name must contain between 2 and 32 characters' });
       }
-      dataToUpdate.displayName = trimmed;
+      dataToUpdate.displayName = sanitized;
     }
 
     if (avatarUrl !== undefined) {
-      dataToUpdate.avatarUrl = avatarUrl ? avatarUrl.trim() : null;
+      if (avatarUrl === null || avatarUrl.trim() === '') {
+        dataToUpdate.avatarUrl = null;
+      } else {
+        const trimmedUrl = avatarUrl.trim();
+        const isUploadPath = trimmedUrl.startsWith('/uploads/');
+        let isValidHttps = false;
+        try {
+          const parsed = new URL(trimmedUrl);
+          isValidHttps = parsed.protocol === 'https:';
+        } catch {
+          isValidHttps = false;
+        }
+
+        if (!isUploadPath && !isValidHttps) {
+          return reply.code(400).send({
+            message: 'Avatar URL must be a valid HTTPS URL or an uploaded file path (/uploads/...)',
+          });
+        }
+        dataToUpdate.avatarUrl = trimmedUrl;
+      }
     }
 
     if (Object.keys(dataToUpdate).length === 0) {

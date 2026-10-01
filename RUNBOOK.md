@@ -79,6 +79,19 @@ mc mirror minio/discord-uploads ./minio-backup-$(date +%Y%m%d)
 
 ---
 
+## Criptografia de Dados em Repouso (AES-256-GCM)
+
+As mensagens diretas privadas (DMs) são protegidas por criptografia de campo (Field-Level Encryption) utilizando AES-256-GCM autenticado antes de serem gravadas no PostgreSQL (`enc:v1:<iv>:<tag>:<ciphertext>`).
+
+1. Para configurar a chave mestre de criptografia no `.env`:
+   ```bash
+   DATABASE_ENCRYPTION_KEY=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
+   ```
+2. Caso `DATABASE_ENCRYPTION_KEY` não seja fornecida, o sistema deriva a chave a partir do `JWT_SECRET`.
+3. O leitor decifra automaticamente textos legados que não possuem o prefixo `enc:v1:`, garantindo zero downtime e compatibilidade retroativa.
+
+---
+
 ## Incident Response — Checklist
 
 ### Credencial comprometida (JWT_SECRET, DB password, etc.)
