@@ -88,3 +88,38 @@ button {
 input, textarea {
   font-family: inherit;
 }
+
+/* ── Skip Link (DMMT Cap.12 / WCAG 2.4.1) ─────────────────────────────────
+   Visually hidden until keyboard-focused. Allows keyboard/screen-reader users
+   to bypass the sidebar navigation and jump directly to main content.       */
+.skip-link {
+  position: fixed;
+  top: -100%;
+  left: 8px;
+  z-index: 9999;
+  padding: 8px 16px;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 0 0 4px 4px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: top 0.1s ease;
+}
+
+.skip-link:focus {
+  top: 0;
+  outline: 3px solid #fff;
+  outline-offset: 2px;
+}
+
+/* ── Spin animation for VoiceScreen connecting state ───────────────────── */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+  display: inline-block;
+  vertical-align: middle;
+}

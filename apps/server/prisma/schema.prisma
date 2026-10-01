@@ -12,6 +12,23 @@ enum ChannelType {
   VOICE
 }
 
+// (ESM Cap.5 — Rich Domain Types) Replaces bare String to prevent invalid values
+// from being inserted via raw SQL or future migrations.
+enum AttachmentType {
+  IMAGE
+  VIDEO
+  FILE
+}
+
+// (ESM Cap.5 — Domain Modelling) Per-channel roles for granular moderation.
+// Global UserRole (ADMIN/USER) governs platform-wide access; this governs
+// channel-scoped permissions (e.g., who can pin messages, kick members).
+enum ChannelMemberRole {
+  OWNER
+  MODERATOR
+  MEMBER
+}
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
@@ -43,10 +60,13 @@ model Channel {
 }
 
 model ChannelMember {
-  id        String   @id @default(cuid())
+  id        String            @id @default(cuid())
   userId    String
   channelId String
-  createdAt DateTime @default(now())
+  // (ESM Cap.5) Per-channel role for moderator/owner delegation.
+  // MEMBER is the safe default; OWNER is set on channel creation.
+  role      ChannelMemberRole @default(MEMBER)
+  createdAt DateTime          @default(now())
 
   user      User     @relation(fields: [userId], references: [id])
   channel   Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
@@ -61,6 +81,8 @@ model Message {
   channelId   String
   attachments Attachment[]
   createdAt   DateTime  @default(now())
+  // (BSRS Cap.15 Forensics) updatedAt enables audit trail for message edits.
+  updatedAt   DateTime  @updatedAt
   author      User      @relation(fields: [authorId], references: [id])
   channel     Channel   @relation(fields: [channelId], references: [id])
 
@@ -74,6 +96,8 @@ model DirectMessage {
   receiverId String
   attachments Attachment[]
   createdAt  DateTime @default(now())
+  // (BSRS Cap.15 Forensics) updatedAt enables audit trail for message edits.
+  updatedAt  DateTime @updatedAt
   sender     User     @relation("sender", fields: [senderId], references: [id])
   receiver   User     @relation("receiver", fields: [receiverId], references: [id])
 
@@ -82,9 +106,11 @@ model DirectMessage {
 }
 
 model Attachment {
-  id        String  @id @default(cuid())
+  id        String         @id @default(cuid())
   url       String
-  type      String  // image | video | file
+  // (ESM Cap.5 — Rich Types) AttachmentType enum prevents invalid values;
+  // bare String allowed 'foo' to be inserted without any DB-level constraint.
+  type      AttachmentType
   fileName  String
   fileSize  Int
   mimeType  String

@@ -1,4 +1,8 @@
 import { create } from 'zustand';
+// Import types for internal use only — do NOT re-export shared types from this
+// store module. Consumers should import directly from '@discord-clone/shared'.
+// Re-exporting creates a misleading coupling: the store appears to own types
+// it doesn't. (ESM Cap.5 — modules should have cohesive, minimal interfaces)
 import type { Channel, Message, User, DirectMessage } from '@discord-clone/shared';
 
 const DMS_LRU_LIMIT = 20;

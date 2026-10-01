@@ -29,6 +29,11 @@ export function buildApp(): FastifyInstance {
   if (!process.env.JWT_SECRET) {
     throw new Error('FATAL: JWT_SECRET environment variable is not set. Refusing to start.');
   }
+  // Fail fast: DATABASE_ENCRYPTION_KEY required; without it, DMs would be
+  // encrypted with a public hardcoded fallback. (BSRS Cap.5 Least Privilege)
+  if (!process.env.DATABASE_ENCRYPTION_KEY && !process.env.JWT_SECRET) {
+    throw new Error('FATAL: DATABASE_ENCRYPTION_KEY environment variable is not set. Refusing to start.');
+  }
   if (isProduction && (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET)) {
     throw new Error('FATAL: Google OAuth credentials are required in production.');
   }
@@ -37,15 +42,21 @@ export function buildApp(): FastifyInstance {
     throw new Error('FATAL: FRONTEND_URL must use HTTPS in production.');
   }
   const app = Fastify({
-    logger: {
-      transport: {
-        target: 'pino-pretty', // You might want to install pino-pretty for dev logs, or omit for prod JSON logs
-        options: {
-          translateTime: 'SYS:standard',
-          ignore: 'pid,hostname',
+    logger: isProduction
+      ? {
+          // (BSRS Cap.15) Structured JSON logs in production for SIEM ingestibility.
+          // pino-pretty is human-readable but cannot be parsed by log analysis tools.
+          level: 'info',
+        }
+      : {
+          transport: {
+            target: 'pino-pretty',
+            options: {
+              translateTime: 'SYS:standard',
+              ignore: 'pid,hostname',
+            },
+          },
         },
-      },
-    },
   });
 
   // Security Headers (Building Secure & Reliable Systems — Defense in Depth)

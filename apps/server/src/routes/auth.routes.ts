@@ -3,6 +3,7 @@ import { z } from 'zod';
 import sanitizeHtml from 'sanitize-html';
 import { processGoogleUser, updateUserProfile } from '../services/auth.service';
 import { prisma } from '../prisma';
+import { redis } from '../lib/redis';
 
 const googleUserInfoSchema = z.object({
   id: z.string().min(1),
@@ -57,7 +58,22 @@ export default async function authRoutes(fastify: FastifyInstance) {
       return reply.code(401).send({ message: 'No refresh token' });
     }
     try {
-      const decoded = fastify.jwt.verify<{sub: string}>(refreshToken);
+      const decoded = fastify.jwt.verify<{sub: string; exp?: number}>(refreshToken);
+
+      // (BSRS Cap.5 & Cap.7) Check if this token has already been revoked (single-use enforcement)
+      const blocklistKey = `rt_blocklist:${refreshToken}`;
+      const isRevoked = await redis.exists(blocklistKey);
+      if (isRevoked) {
+        return reply.code(401).send({ message: 'Refresh token has already been used or revoked' });
+      }
+
+      // Revoke the current refresh token before issuing a new one.
+      // TTL is set to the token's remaining lifetime so Redis auto-evicts it.
+      const remainingTtl = decoded.exp ? decoded.exp - Math.floor(Date.now() / 1000) : 7 * 24 * 60 * 60;
+      if (remainingTtl > 0) {
+        await redis.set(blocklistKey, '1', 'EX', remainingTtl);
+      }
+
       const newAccessToken = fastify.jwt.sign({ sub: decoded.sub }, { expiresIn: '15m' });
       
       reply.setCookie('accessToken', newAccessToken, {
@@ -81,6 +97,21 @@ export default async function authRoutes(fastify: FastifyInstance) {
       sameSite: 'strict' as const,
       path: '/',
     };
+
+    // (BSRS Cap.5) Revoke the refresh token on logout so it cannot be reused
+    const refreshToken = request.cookies.refreshToken;
+    if (refreshToken) {
+      try {
+        const decoded = fastify.jwt.verify<{exp?: number}>(refreshToken);
+        const remainingTtl = decoded.exp ? decoded.exp - Math.floor(Date.now() / 1000) : 7 * 24 * 60 * 60;
+        if (remainingTtl > 0) {
+          await redis.set(`rt_blocklist:${refreshToken}`, '1', 'EX', remainingTtl);
+        }
+      } catch {
+        // Token already invalid — nothing to revoke
+      }
+    }
+
     reply.clearCookie('accessToken', cookieOptions);
     reply.clearCookie('refreshToken', cookieOptions);
     request.log.info({ event: 'auth_logout', ip: request.ip }, 'User logged out');

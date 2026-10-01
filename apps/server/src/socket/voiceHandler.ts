@@ -7,6 +7,9 @@ import { isAdmin as defaultIsAdmin } from '../services/auth.service';
 
 const channelIdSchema = z.string().cuid();
 
+/** (BSRS Cap.10 DoS) Maximum concurrent participants per voice channel. */
+const MAX_VOICE_PARTICIPANTS = 25;
+
 export interface VoiceHandlerDeps {
   prisma: PrismaClient;
   canAccessChannel: (channelId: string, userId: string, isUserAdmin: boolean) => Promise<boolean>;
@@ -65,6 +68,16 @@ export function registerVoiceHandler(
           userId,
           socketId: socket.id,
         });
+      }
+
+      // (BSRS Cap.10 DoS — Resource Exhaustion) Enforce maximum participant limit
+      // before joining. Without this, a bot could open hundreds of connections to
+      // a single channel, saturating memory and CPU.
+      const voiceRoom = io.sockets.adapter.rooms.get(`voice_${channelId}`);
+      const currentCount = voiceRoom ? voiceRoom.size : 0;
+      if (currentCount >= MAX_VOICE_PARTICIPANTS) {
+        socket.emit('error', { message: `Voice channel is full (max ${MAX_VOICE_PARTICIPANTS} participants)` });
+        return;
       }
 
       socket.join(`voice_${channelId}`);

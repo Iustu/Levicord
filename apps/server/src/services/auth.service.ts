@@ -50,7 +50,10 @@ export async function processGoogleUser(userInfo: GoogleUserInfo, prisma: Prisma
   return user;
 }
 
-const ADMIN_CACHE_TTL = 60; // seconds
+// (BSRS Cap.5 Least Privilege) Short TTL so privilege revocations take effect
+// quickly. 60s was too long — a revoked admin retains access for a full minute.
+// 10s balances DB load with near-immediate revocation.
+const ADMIN_CACHE_TTL = 10; // seconds
 
 export async function isAdmin(userId: string, prisma: PrismaClient = defaultPrisma, redis: Redis = defaultRedis) {
   const cacheKey = `admin:${userId}`;

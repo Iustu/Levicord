@@ -57,5 +57,7 @@ export function setupSockets(app: FastifyInstance) {
   });
 }
 
-// Re-export redis for backward compatibility with any other files that import from here
+// TODO(tech-debt): remove this re-export after migrating all consumers to import
+// directly from '../lib/redis'. Track progress in issue #TECH-DEBT-001.
+// (ESM \u2014 tech debt should be formally tracked, not just commented)
 export { redis } from '../lib/redis';

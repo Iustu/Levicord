@@ -6,11 +6,19 @@ const PREFIX = 'enc:v1:';
 
 /**
  * Derives a deterministic 256-bit encryption key from environment secrets.
- * Uses DATABASE_ENCRYPTION_KEY if provided; falls back to JWT_SECRET.
- * (Building Secure and Reliable Systems — Cap. 14: Data Protection at Rest)
+ * Prefers DATABASE_ENCRYPTION_KEY; falls back to JWT_SECRET only as a last
+ * resort. Throws at startup if neither variable is set — a hardcoded fallback
+ * key would defeat the entire encryption scheme.
+ * (Building Secure and Reliable Systems — Cap. 5 Least Privilege, Cap. 14 Deploying)
  */
 function getEncryptionKey(): Buffer {
-  const secret = process.env.DATABASE_ENCRYPTION_KEY || process.env.JWT_SECRET || 'levicord-default-encryption-salt';
+  const secret = process.env.DATABASE_ENCRYPTION_KEY || process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error(
+      'FATAL: DATABASE_ENCRYPTION_KEY (or JWT_SECRET as fallback) environment variable is not set. ' +
+      'Refusing to start — a missing key would encrypt all DMs with a public hardcoded string.',
+    );
+  }
   return crypto.createHash('sha256').update(secret).digest();
 }
 

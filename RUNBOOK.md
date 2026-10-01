@@ -87,7 +87,7 @@ As mensagens diretas privadas (DMs) são protegidas por criptografia de campo (F
    ```bash
    DATABASE_ENCRYPTION_KEY=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
    ```
-2. Caso `DATABASE_ENCRYPTION_KEY` não seja fornecida, o sistema deriva a chave a partir do `JWT_SECRET`.
+2. `DATABASE_ENCRYPTION_KEY` é **obrigatória** — o servidor não inicia sem ela. O fallback por `JWT_SECRET` mantém-se como última reserva, mas nunca deve faltar em produção.
 3. O leitor decifra automaticamente textos legados que não possuem o prefixo `enc:v1:`, garantindo zero downtime e compatibilidade retroativa.
 
 ---
@@ -127,3 +127,79 @@ As mensagens diretas privadas (DMs) são protegidas por criptografia de campo (F
 | MEDIUM     | ≤ 30 dias |
 
 CVEs detectados pelo Dependabot → abrir issue → assignar responsável → merge com testes passando.
+
+---
+
+## Matriz de Escalação
+
+| Situação | Primeiro contacto | Escalação |
+|----------|------------------|----------|
+| Indisponibilidade total | On-call engineer | CTO em 30 min |
+| Fuga de dados suspeita | On-call engineer | CISO + DPO em 15 min |
+| Credencial comprometida | On-call engineer | CTO + CISO em 15 min |
+| CVE CRITICAL na imagem | Responsável de DevSecOps | CTO em 2h |
+
+---
+
+## Divulgação Pública de Vulnerabilidades (Responsible Disclosure)
+
+(BSRS Cap.17 — Crisis Management)
+
+1. **Contenção**: isolar o sistema afetado antes de divulgar publicamente.
+2. **Notificação interna**: abrir issue de segurança confidencial no repositório privado.
+3. **Notificação a utilizadores**: enviar e-mail a todos os utilizadores afetados com:
+   - O que aconteceu e quando
+   - Que dados foram expostos
+   - Ações tomadas para mitigar
+   - O que o utilizador deve fazer (ex: alterar passwords)
+4. **Embargo**: coordenar com investigadores externos antes de publicar CVE.
+5. **Post-mortem público**: publicar relatório simplificado após 30 dias.
+
+---
+
+## Template de Post-Mortem
+
+(BSRS Cap.18 — Investigating Systems)
+
+```markdown
+# Post-Mortem — [Título do Incidente]
+
+**Data**: YYYY-MM-DD  
+**Duração do impacto**: HH:MM – HH:MM UTC  
+**Severity**: SEV-1 / SEV-2 / SEV-3  
+**Autor**: [Nome]
+
+## Resumo
+[2–3 frases descrevendo o que aconteceu e o impacto.]
+
+## Cronologia
+| Hora (UTC) | Evento |
+|-----------|--------|
+| HH:MM | Alerta disparado por ... |
+| HH:MM | Diagnóstico: causa raiz identificada como ... |
+| HH:MM | Mitigação aplicada: ... |
+| HH:MM | Serviço restaurado. |
+
+## Causa Raiz
+[Descrição técnica da causa raiz. Porquê aconteceu?]
+
+## Fator Contribuinte
+[O que facilitou o incidente? Ex: ausência de teste, TTL demasiado alto.]
+
+## Impacto
+- Utilizadores afetados: N
+- Dados expostos: Sim / Não (especificar)
+- SLA violado: Sim / Não
+
+## Ações Corretivas
+| Ação | Responsável | Prazo | Issue |
+|------|------------|-------|-------|
+| ... | @user | YYYY-MM-DD | #123 |
+
+## Lições Aprendidas
+- ...
+
+## Métricas de Resposta
+- MTTD (Mean Time to Detect): HH:MM
+- MTTR (Mean Time to Resolve): HH:MM
+```

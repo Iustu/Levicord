@@ -11,7 +11,7 @@ import { Avatar } from '../components/Avatar';
 import { MessageList } from '../components/MessageList';
 import { ChatInput } from '../components/ChatInput';
 import { VoiceScreen } from '../components/VoiceScreen';
-import type { Channel, Message, DirectMessage, User } from '../stores/useChatStore';
+import type { Channel, Message, DirectMessage, User } from '@discord-clone/shared';
 import type { UploadedAttachment } from '../components/ChatInput';
 import './MainApp.css';
 
@@ -150,7 +150,7 @@ export default function MainApp() {
         const firstText = data.find((c) => c.type !== 'VOICE');
         if (firstText && !activeChannelId) setActiveChannelId(firstText.id);
       })
-      .catch(() => setChannelsError('Não foi possível carregar os canais.'));
+      .catch(() => setChannelsError('Não foi possível carregar os canais. Verifique a sua ligação e tente novamente.'));
   }, [token, channelsRetryKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Fetch users for DMs ────────────────────────────────────────────────────
@@ -184,7 +184,7 @@ export default function MainApp() {
         setMessages(data.messages);
         setNextCursor(data.nextCursor);
       })
-      .catch(() => { if (!cancelled) setFetchError('Não foi possível carregar as mensagens.'); })
+      .catch(() => { if (!cancelled) setFetchError('Não foi possível carregar as mensagens. Verifique a sua ligação e tente novamente.'); })
       .finally(() => { if (!cancelled) setIsLoadingMessages(false); });
 
     return () => {
@@ -204,7 +204,7 @@ export default function MainApp() {
 
     apiFetch<DirectMessage[]>(`/api/users/${activeDmUserId}/dms`, token)
       .then((data) => { if (!cancelled) setDms(activeDmUserId, data); })
-      .catch(() => { if (!cancelled) setFetchError('Não foi possível carregar as mensagens.'); })
+      .catch(() => { if (!cancelled) setFetchError('Não foi possível carregar as mensagens. Verifique a sua ligação e tente novamente.'); })
       .finally(() => { if (!cancelled) setIsLoadingMessages(false); });
 
     return () => { cancelled = true; };
@@ -404,7 +404,14 @@ export default function MainApp() {
                     <span>{user.displayName}</span>
                   </li>
                 ))}
-                {users.length === 0 && <div className="empty-users">Nenhum usuário encontrado.</div>}
+                {users.length === 0 && (
+                  <div className="empty-users">
+                    <p>Ainda não há outros utilizadores na plataforma.</p>
+                    <p style={{ marginTop: '4px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                      Convide alguém para começar uma conversa.
+                    </p>
+                  </div>
+                )}
               </ul>
             </>
           )}
@@ -455,7 +462,7 @@ export default function MainApp() {
       </div>
 
       {/* ── Chat Area ──────────────────────────────────────────────────── */}
-      <div className="chat-area">
+      <div className="chat-area" id="main-content">
         {hasActiveConversation ? (
           <>
             <div className="chat-header">
@@ -515,7 +522,7 @@ export default function MainApp() {
                       <img
                         src={msg.author.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${msg.author.displayName}`}
                         className="avatar"
-                        alt=""
+                        alt={`Avatar de ${msg.author.displayName}`}
                         loading="lazy"
                       />
                       <div>
