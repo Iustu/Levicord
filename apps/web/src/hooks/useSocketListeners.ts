@@ -7,10 +7,11 @@ export interface SocketListenerActions {
   addMessage?: (message: Message) => void;
   addDm?: (dm: DirectMessage, otherUserId: string) => void;
   getCurrentUserId?: () => string | null;
+  setUserStatus?: (userId: string, status: 'online' | 'offline') => void;
 }
 
 /**
- * Attaches real-time Socket.io listeners for channel messages and direct messages.
+ * Attaches real-time Socket.io listeners for channel messages, direct messages, and presence.
  *
  * Supports Dependency Injection (DI) for testability and loose coupling (ESM Cap. 5).
  * If actions are not provided, it defaults to the global Zustand store.
@@ -22,6 +23,7 @@ export function useSocketListeners(socket: Socket | null, actions?: SocketListen
   const addMessage = actions?.addMessage ?? storeAddMessage;
   const addDm = actions?.addDm ?? ((dm, otherId) => useChatStore.getState().addDm(dm, otherId));
   const getUserId = actions?.getCurrentUserId ?? (() => useChatStore.getState().currentUserId);
+  const setUserStatus = actions?.setUserStatus ?? ((userId, status) => useChatStore.getState().setUserStatus(userId, status));
 
   useEffect(() => {
     if (!socket) return;
@@ -44,12 +46,24 @@ export function useSocketListeners(socket: Socket | null, actions?: SocketListen
       addDm(dm, otherUserId);
     };
 
+    const handleUserStatus = (data: { userId: string; status: 'online' | 'offline' }) => {
+      setUserStatus(data.userId, data.status);
+    };
+
+    const handleMessageDeleted = (data: { channelId: string; messageId: string }) => {
+      useChatStore.getState().markMessageDeleted(data.messageId);
+    };
+
     socket.on('new_message', handleNewMessage);
     socket.on('new_dm', handleNewDm);
+    socket.on('user_status', handleUserStatus);
+    socket.on('message_deleted', handleMessageDeleted);
 
     return () => {
       socket.off('new_message', handleNewMessage);
       socket.off('new_dm', handleNewDm);
+      socket.off('user_status', handleUserStatus);
+      socket.off('message_deleted', handleMessageDeleted);
     };
-  }, [socket, addMessage, addDm, getUserId, currentUserId]);
+  }, [socket, addMessage, addDm, getUserId, setUserStatus, currentUserId]);
 }

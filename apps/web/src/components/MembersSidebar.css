@@ -1,0 +1,120 @@
+/* ── Members Sidebar (Desktop 1920x1080p Layout) ───────────────────────── */
+.members-sidebar {
+  width: 240px;
+  background-color: #2b2d31;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  border-left: 1px solid rgba(0, 0, 0, 0.2);
+  height: 100%;
+  overflow-y: auto;
+  user-select: none;
+  text-align: left;
+}
+
+@media (min-width: 1440px) {
+  .members-sidebar {
+    width: 260px;
+  }
+}
+
+.members-content {
+  padding: 16px 8px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.members-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.members-group-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #949ba4;
+  text-transform: uppercase;
+  padding: 4px 8px;
+  text-align: left;
+}
+
+.member-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+  background: transparent;
+  border: none;
+  width: 100%;
+  text-align: left;
+  color: #949ba4;
+}
+
+.member-item:hover {
+  background-color: rgba(79, 84, 92, 0.16);
+  color: #dbdee1;
+}
+
+.member-item.is-online {
+  color: #dbdee1;
+}
+
+.member-avatar-wrapper {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.member-status-dot {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid #2b2d31;
+}
+
+.member-status-dot.online {
+  background-color: #23a55a;
+}
+
+.member-status-dot.offline {
+  background-color: #80848e;
+}
+
+.member-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  text-align: left;
+}
+
+.member-name {
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+.member-you-badge {
+  font-size: 11px;
+  color: #949ba4;
+  font-weight: 400;
+  margin-left: 4px;
+}
+
+@media (max-width: 1024px) {
+  .members-sidebar {
+    display: none;
+  }
+}

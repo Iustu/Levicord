@@ -4,7 +4,17 @@ import { useWebRTC } from '../hooks/useWebRTC';
 import { useChatStore } from '../stores/useChatStore';
 import './WebRTCGrid.css';
 
-function VideoPlayer({ stream, muted = false, label }: { stream: MediaStream | null, muted?: boolean, label: string }) {
+function VideoPlayer({
+  stream,
+  muted = false,
+  label,
+  isSpeaking = false,
+}: {
+  stream: MediaStream | null;
+  muted?: boolean;
+  label: string;
+  isSpeaking?: boolean;
+}) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -14,9 +24,12 @@ function VideoPlayer({ stream, muted = false, label }: { stream: MediaStream | n
   }, [stream]);
 
   return (
-    <div className="video-container">
+    <div className={`video-container ${isSpeaking ? 'speaking' : ''}`}>
       <video ref={videoRef} autoPlay playsInline muted={muted} />
-      <div className="video-label">{label}</div>
+      <div className="video-label">
+        {isSpeaking && <span className="speaking-badge" aria-label="Falando" />}
+        {label}
+      </div>
     </div>
   );
 }
@@ -39,7 +52,12 @@ export function WebRTCGrid({ channelId, onDisconnect }: { channelId: string, onD
   return (
     <div className="webrtc-wrapper">
       <div className="webrtc-grid">
-        <VideoPlayer stream={localStream} muted={true} label="Você" />
+        <VideoPlayer
+          stream={localStream}
+          muted={true}
+          label="Você"
+          isSpeaking={!isMuted && !!localStream}
+        />
         
         {Object.entries(remoteStreams).map(([socketId, data]) => {
           const user = users.find(u => u.id === data.userId);

@@ -54,52 +54,69 @@ export class ErrorBoundary extends Component<Props, State> {
             alignItems: 'center',
             justifyContent: 'center',
             height: '100vh',
-            gap: '16px',
-            backgroundColor: '#36393f',
+            backgroundColor: '#1e1f22',
             color: '#dcddde',
             fontFamily: 'system-ui, sans-serif',
             padding: '32px',
-            textAlign: 'center',
           }}
         >
-          <h2 style={{ color: '#ed4245', margin: 0 }}>Algo correu mal</h2>
-          <p style={{ maxWidth: '400px', color: '#b9bbbe', margin: 0 }}>
-            Um erro inesperado ocorreu. Pode tentar recarregar a p\xe1gina ou clicar em{' '}
-            <strong>Tentar novamente</strong> abaixo.
-          </p>
-          {this.state.error && (
-            <details style={{ color: '#72767d', fontSize: '12px' }}>
-              <summary>Detalhes do erro</summary>
-              <pre style={{ textAlign: 'left', whiteSpace: 'pre-wrap' }}>{this.state.error.message}</pre>
-            </details>
-          )}
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button
-              onClick={this.handleReset}
-              style={{
-                padding: '8px 20px',
-                backgroundColor: '#5865f2',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-              }}
-            >
-              Tentar novamente
-            </button>
-            <button
-              onClick={() => window.location.reload()}
-              style={{
-                padding: '8px 20px',
-                backgroundColor: '#4f545c',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-              }}
-            >
-              Recarregar p\xe1gina
-            </button>
+          <div
+            style={{
+              backgroundColor: '#2b2d31',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              borderRadius: '8px',
+              padding: '32px',
+              maxWidth: '480px',
+              width: '100%',
+              textAlign: 'left',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '16px',
+              boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)',
+            }}
+          >
+            <h2 style={{ color: '#ed4245', margin: 0, fontSize: '20px', fontWeight: 700, textAlign: 'left' }}>Algo correu mal</h2>
+            <p style={{ color: '#b9bbbe', margin: 0, fontSize: '14px', lineHeight: '1.5', textAlign: 'left' }}>
+              Um erro inesperado ocorreu. Pode tentar recarregar a página ou clicar em{' '}
+              <strong style={{ color: '#f2f3f5' }}>Tentar novamente</strong> abaixo.
+            </p>
+            {this.state.error && (
+              <details style={{ color: '#72767d', fontSize: '12px', textAlign: 'left' }}>
+                <summary style={{ cursor: 'pointer', marginBottom: '8px' }}>Detalhes do erro</summary>
+                <pre style={{ textAlign: 'left', whiteSpace: 'pre-wrap', backgroundColor: '#1e1f22', padding: '12px', borderRadius: '4px', overflowX: 'auto' }}>{this.state.error.message}</pre>
+              </details>
+            )}
+            <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+              <button
+                onClick={this.handleReset}
+                style={{
+                  padding: '10px 20px',
+                  backgroundColor: '#5865f2',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                  fontSize: '14px',
+                }}
+              >
+                Tentar novamente
+              </button>
+              <button
+                onClick={() => window.location.reload()}
+                style={{
+                  padding: '10px 20px',
+                  backgroundColor: 'transparent',
+                  color: '#f2f3f5',
+                  border: '1px solid #4e5058',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                }}
+              >
+                Recarregar página
+              </button>
+            </div>
           </div>
         </div>
       );

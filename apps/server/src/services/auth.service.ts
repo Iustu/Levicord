@@ -3,6 +3,8 @@ import { redis as defaultRedis } from '../lib/redis';
 import type { PrismaClient } from '@prisma/client';
 import type { Redis } from 'ioredis';
 
+import { isRootSuperAdmin } from './permission.service';
+
 function configuredAdminEmails() {
   return new Set((process.env.ADMIN_EMAILS || '').split(',').map((email) => email.trim().toLowerCase()).filter(Boolean));
 }
@@ -19,6 +21,9 @@ export async function processGoogleUser(userInfo: GoogleUserInfo, prisma: Prisma
     throw new Error('Failed to get user email from Google');
   }
 
+  const isRoot = isRootSuperAdmin(userInfo.email);
+  const isEnvAdmin = configuredAdminEmails().has(userInfo.email.toLowerCase());
+
   const existingUser = await prisma.user.findUnique({
     where: { googleId: userInfo.id },
   });
@@ -30,7 +35,11 @@ export async function processGoogleUser(userInfo: GoogleUserInfo, prisma: Prisma
       where: { id: existingUser.id },
       data: {
         email: userInfo.email,
-        ...(configuredAdminEmails().has(userInfo.email.toLowerCase()) ? { role: 'ADMIN' as const } : {}),
+        ...(isRoot
+          ? { role: 'SUPERADMIN' as const }
+          : isEnvAdmin && existingUser.role === 'USER'
+          ? { role: 'ADMIN' as const }
+          : {}),
       },
     });
     return user;
@@ -43,7 +52,7 @@ export async function processGoogleUser(userInfo: GoogleUserInfo, prisma: Prisma
       email: userInfo.email,
       displayName: userInfo.name || 'Usuário',
       avatarUrl: null, // Incógnita by default
-      role: configuredAdminEmails().has(userInfo.email.toLowerCase()) ? 'ADMIN' : 'USER',
+      role: isRoot ? 'SUPERADMIN' : isEnvAdmin ? 'ADMIN' : 'USER',
     },
   });
 
@@ -62,9 +71,23 @@ export async function isAdmin(userId: string, prisma: PrismaClient = defaultPris
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { role: true },
+    select: { role: true, email: true },
   });
-  const result = user?.role === 'ADMIN';
+  const result = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN' || isRootSuperAdmin(user?.email);
+  await redis.set(cacheKey, result ? '1' : '0', 'EX', ADMIN_CACHE_TTL);
+  return result;
+}
+
+export async function isSuperAdmin(userId: string, prisma: PrismaClient = defaultPrisma, redis: Redis = defaultRedis) {
+  const cacheKey = `superadmin:${userId}`;
+  const cached = await redis.get(cacheKey);
+  if (cached !== null) return cached === '1';
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { role: true, email: true },
+  });
+  const result = user?.role === 'SUPERADMIN' || isRootSuperAdmin(user?.email);
   await redis.set(cacheKey, result ? '1' : '0', 'EX', ADMIN_CACHE_TTL);
   return result;
 }

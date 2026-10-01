@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { getChannels, createChannel, updateChannel, getChannelMessages, canAccessChannel, searchMessages } from '../services/channel.service';
+import { getChannels, createChannel, updateChannel, getChannelMessages, canAccessChannel, searchMessages, deleteMessage } from '../services/channel.service';
 import { isAdmin } from '../services/auth.service';
 import { requireAuth, getAuthUserId } from '../lib/auth';
 
@@ -8,12 +8,13 @@ export default async function channelRoutes(fastify: FastifyInstance) {
   // (Engenharia de Software — DRY, Extract Function)
   fastify.addHook('onRequest', requireAuth);
 
-  fastify.get<{ Querystring: { limit?: number; offset?: number } }>('/', async (request) => {
+  fastify.get<{ Querystring: { limit?: number; offset?: number; serverId?: string } }>('/', async (request) => {
     const limit = Math.min(Number(request.query.limit ?? 100), 200);
     const offset = Number(request.query.offset ?? 0);
+    const serverId = request.query.serverId;
     const userId = getAuthUserId(request);
     const userIsAdmin = await isAdmin(userId);
-    return getChannels(userId, userIsAdmin, limit, offset);
+    return getChannels(userId, userIsAdmin, limit, offset, serverId);
   });
 
   const createChannelSchema = {
@@ -96,6 +97,29 @@ export default async function channelRoutes(fastify: FastifyInstance) {
       const result = await getChannelMessages(id, 50, cursor);
       // Reverse because we query descending (newest first) but UI renders oldest to newest.
       return { ...result, messages: result.messages.reverse() };
+    },
+  );
+
+  fastify.delete<{ Params: { id: string; messageId: string } }>(
+    '/:id/messages/:messageId',
+    async (request, reply) => {
+      try {
+        const userId = getAuthUserId(request);
+        const { id, messageId } = request.params;
+        const deleted = await deleteMessage(messageId, userId);
+
+        const io = (fastify as any).io;
+        if (io) {
+          io.to(id).emit('message_deleted', {
+            channelId: id,
+            messageId,
+          });
+        }
+
+        return reply.code(200).send(deleted);
+      } catch (err: any) {
+        return reply.code(403).send({ message: err.message || 'Sem permissão para excluir mensagem' });
+      }
     },
   );
 }

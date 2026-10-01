@@ -39,20 +39,30 @@ export async function createDirectMessage(
   content: string | null,
   senderId: string,
   receiverId: string,
-  attachments?: { url: string; type: 'image'|'video'|'file'; fileName: string; fileSize: number; mimeType: string }[],
+  attachments?: { url: string; type: 'image'|'video'|'file'|'IMAGE'|'VIDEO'|'FILE'; fileName: string; fileSize: number; mimeType: string }[],
   prisma: PrismaClient = defaultPrisma
 ) {
   const sanitized = content ? sanitizeHtml(content) : null;
   const encrypted = encrypt(sanitized);
+
+  const formattedAttachments = attachments && attachments.length > 0
+    ? attachments.map(a => ({
+        url: a.url,
+        type: a.type.toUpperCase() as 'IMAGE' | 'VIDEO' | 'FILE',
+        fileName: a.fileName,
+        fileSize: a.fileSize,
+        mimeType: a.mimeType,
+      }))
+    : undefined;
 
   const created = await prisma.directMessage.create({
     data: {
       content: encrypted,
       senderId,
       receiverId,
-      ...(attachments && attachments.length > 0 ? {
+      ...(formattedAttachments ? {
         attachments: {
-          create: attachments
+          create: formattedAttachments,
         }
       } : {})
     },

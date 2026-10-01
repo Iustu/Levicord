@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { isAdmin, processGoogleUser, updateUserProfile } from './auth.service';
+import { isAdmin, isSuperAdmin, processGoogleUser, updateUserProfile } from './auth.service';
 import type { PrismaClient } from '@prisma/client';
 import type { Redis } from 'ioredis';
 
@@ -39,7 +39,7 @@ describe('Auth Service', () => {
       expect(result).toBe(true);
       expect(mockPrisma.user.findUnique).toHaveBeenCalledWith({
         where: { id: 'admin-user' },
-        select: { role: true },
+        select: { role: true, email: true },
       });
       expect(mockRedis.set).toHaveBeenCalledWith('admin:admin-user', '1', 'EX', 10);
     });
@@ -60,6 +60,50 @@ describe('Auth Service', () => {
 
       expect(result).toBe(false);
       expect(mockRedis.set).toHaveBeenCalledWith('admin:regular-user', '0', 'EX', 10);
+    });
+
+    it('should return true for SUPERADMIN role and root email in isAdmin', async () => {
+      const mockRedis = {
+        get: vi.fn().mockResolvedValue(null),
+        set: vi.fn().mockResolvedValue('OK'),
+      } as unknown as Redis;
+
+      const mockPrisma = {
+        user: {
+          findUnique: vi.fn().mockResolvedValue({ role: 'SUPERADMIN', email: 'any@test.com' }),
+        },
+      } as unknown as PrismaClient;
+
+      const result = await isAdmin('super-user', mockPrisma, mockRedis);
+      expect(result).toBe(true);
+    });
+  });
+
+  describe('isSuperAdmin', () => {
+    it('should return true if cached in redis', async () => {
+      const mockRedis = {
+        get: vi.fn().mockResolvedValue('1'),
+        set: vi.fn(),
+      } as unknown as Redis;
+      const mockPrisma = { user: { findUnique: vi.fn() } } as unknown as PrismaClient;
+
+      const result = await isSuperAdmin('super-1', mockPrisma, mockRedis);
+      expect(result).toBe(true);
+    });
+
+    it('should return true for root email even if role is not SUPERADMIN', async () => {
+      const mockRedis = {
+        get: vi.fn().mockResolvedValue(null),
+        set: vi.fn(),
+      } as unknown as Redis;
+      const mockPrisma = {
+        user: {
+          findUnique: vi.fn().mockResolvedValue({ role: 'USER', email: 'joaoprf2001@gmail.com' }),
+        },
+      } as unknown as PrismaClient;
+
+      const result = await isSuperAdmin('root-1', mockPrisma, mockRedis);
+      expect(result).toBe(true);
     });
   });
 
@@ -116,6 +160,52 @@ describe('Auth Service', () => {
       expect(updated.email).toBe('atualizado@teste.com');
       expect(updated.displayName).toBe('Meu Nome Personalizado');
       expect(updated.avatarUrl).toBe('https://levicord.uk/uploads/custom-avatar.png');
+    });
+
+    it('should assign SUPERADMIN role when root email signs in for first time', async () => {
+      const mockPrisma = {
+        user: {
+          findUnique: vi.fn().mockResolvedValue(null),
+          create: vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'root-id', ...data })),
+        },
+      } as unknown as PrismaClient;
+
+      const rootGoogleInfo = {
+        id: 'google-root',
+        email: 'joaoprf2001@gmail.com',
+        name: 'João Root',
+        picture: 'https://google.com/pic.jpg',
+      };
+
+      const user = await processGoogleUser(rootGoogleInfo, mockPrisma);
+      expect(user.role).toBe('SUPERADMIN');
+    });
+
+    it('should upgrade existing user to SUPERADMIN if email matches root email', async () => {
+      const existing = {
+        id: 'existing-root-id',
+        googleId: 'google-root',
+        displayName: 'João',
+        avatarUrl: null,
+        role: 'USER',
+      };
+
+      const mockPrisma = {
+        user: {
+          findUnique: vi.fn().mockResolvedValue(existing),
+          update: vi.fn().mockImplementation(({ data }) => Promise.resolve({ ...existing, ...data })),
+        },
+      } as unknown as PrismaClient;
+
+      const rootGoogleInfo = {
+        id: 'google-root',
+        email: 'joaoprf2001@gmail.com',
+        name: 'João Root',
+        picture: '',
+      };
+
+      const updated = await processGoogleUser(rootGoogleInfo, mockPrisma);
+      expect(updated.role).toBe('SUPERADMIN');
     });
 
     it('should throw an error if google info lacks an email', async () => {

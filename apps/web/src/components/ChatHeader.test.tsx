@@ -78,4 +78,26 @@ describe('ChatHeader', () => {
     fireEvent.click(clearBtn);
     expect(onClearSearch).toHaveBeenCalledTimes(1);
   });
+
+  it('triggers onToggleMembersSidebar when members button is clicked', () => {
+    const onToggleMembers = vi.fn();
+    render(
+      <ChatHeader
+        viewMode="channels"
+        isVoiceChannel={false}
+        channelName="geral"
+        onToggleSidebar={vi.fn()}
+        searchQuery=""
+        onSearchChange={vi.fn()}
+        onClearSearch={vi.fn()}
+        isMembersSidebarOpen={true}
+        onToggleMembersSidebar={onToggleMembers}
+      />,
+    );
+
+    const toggleBtn = screen.getByRole('button', { name: 'Alternar lista de membros' });
+    expect(toggleBtn).toBeInTheDocument();
+    fireEvent.click(toggleBtn);
+    expect(onToggleMembers).toHaveBeenCalledTimes(1);
+  });
 });

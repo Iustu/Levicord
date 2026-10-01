@@ -1,4 +1,4 @@
-import { Hash, MessageCircle, Volume2, Search, X, Menu } from 'lucide-react';
+import { Hash, MessageCircle, Volume2, Search, X, Menu, Users } from 'lucide-react';
 
 export interface ChatHeaderProps {
   viewMode: 'channels' | 'dms';
@@ -10,6 +10,8 @@ export interface ChatHeaderProps {
   searchQuery: string;
   onSearchChange: (query: string) => void;
   onClearSearch: () => void;
+  isMembersSidebarOpen?: boolean;
+  onToggleMembersSidebar?: () => void;
 }
 
 export function ChatHeader({
@@ -22,6 +24,8 @@ export function ChatHeader({
   searchQuery,
   onSearchChange,
   onClearSearch,
+  isMembersSidebarOpen,
+  onToggleMembersSidebar,
 }: ChatHeaderProps) {
   return (
     <header className="chat-header">
@@ -76,6 +80,30 @@ export function ChatHeader({
             </button>
           )}
         </div>
+      )}
+
+      {viewMode === 'channels' && onToggleMembersSidebar && (
+        <button
+          className={`icon-btn members-toggle-btn ${isMembersSidebarOpen ? 'active' : ''}`}
+          onClick={onToggleMembersSidebar}
+          aria-label="Alternar lista de membros"
+          title={isMembersSidebarOpen ? 'Ocultar lista de membros' : 'Mostrar lista de membros'}
+          style={{
+            background: isMembersSidebarOpen ? 'rgba(79, 84, 92, 0.32)' : 'transparent',
+            border: 'none',
+            color: isMembersSidebarOpen ? '#f2f3f5' : '#b5bac1',
+            borderRadius: '4px',
+            padding: '6px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginLeft: '12px',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <Users size={20} />
+        </button>
       )}
     </header>
   );

@@ -91,7 +91,8 @@ export function registerMessageHandler(
       io.to(result.data.channelId).emit('new_message', message);
     } catch (error) {
       log.error(error);
-      socket.emit('error', { message: 'Failed to send message' });
+      const errMsg = (error as Error)?.message || 'Failed to send message';
+      socket.emit('error', { message: errMsg });
     }
   });
 }

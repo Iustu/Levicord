@@ -1,6 +1,8 @@
 import { useRef, useState, useEffect } from 'react';
-import { Send, Paperclip, Loader2, X } from 'lucide-react';
+import { Send, Paperclip, Loader2, X, Smile } from 'lucide-react';
 import { API_BASE } from '../lib/api';
+
+const QUICK_EMOJIS = ['😀', '😂', '😍', '🔥', '🎉', '👍', '❤️', '✨', '🚀', '👏', '🙌', '💯'];
 
 interface ChatInputProps {
   placeholder: string;
@@ -25,9 +27,17 @@ export function ChatInput({ placeholder, token, onSend, onTypingStart, onTypingS
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isEmojiOpen, setIsEmojiOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textInputRef = useRef<HTMLInputElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isTypingRef = useRef(false);
+
+  const handleSelectEmoji = (emoji: string) => {
+    setInputText((prev) => prev + emoji);
+    setIsEmojiOpen(false);
+    textInputRef.current?.focus();
+  };
 
   useEffect(() => {
     return () => {
@@ -161,6 +171,7 @@ export function ChatInput({ placeholder, token, onSend, onTypingStart, onTypingS
           {isUploading ? <Loader2 size={20} className="spinner" /> : <Paperclip size={20} />}
         </button>
         <input
+          ref={textInputRef}
           type="text"
           placeholder={placeholder}
           value={inputText}
@@ -169,6 +180,33 @@ export function ChatInput({ placeholder, token, onSend, onTypingStart, onTypingS
           maxLength={2000}
           aria-label="Campo de mensagem"
         />
+
+        {isEmojiOpen && (
+          <div className="emoji-picker-popover" role="dialog" aria-label="Seletor de emojis">
+            {QUICK_EMOJIS.map((emoji) => (
+              <button
+                key={emoji}
+                type="button"
+                className="emoji-picker-item"
+                onClick={() => handleSelectEmoji(emoji)}
+                aria-label={`Inserir emoji ${emoji}`}
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <button
+          type="button"
+          className="emoji-btn"
+          onClick={() => setIsEmojiOpen((o) => !o)}
+          aria-label="Escolher emoji"
+          title="Inserir emoji"
+        >
+          <Smile size={20} />
+        </button>
+
         <button
           type="submit"
           className="send-btn"

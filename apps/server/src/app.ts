@@ -13,6 +13,8 @@ import channelRoutes from './routes/channel.routes';
 import uploadRoutes from './routes/upload.routes';
 import downloadRoutes from './routes/download.routes';
 import userRoutes from './routes/user.routes';
+import adminRoutes from './routes/admin.routes';
+import serverRoutes from './routes/server.routes';
 import { prisma } from './prisma';
 import { redis } from './lib/redis';
 import { checkMinioHealth } from './lib/minio';
@@ -146,6 +148,8 @@ export function buildApp(): FastifyInstance {
     app.register(channelRoutes, { prefix: `${prefix}/channels` });
     app.register(userRoutes, { prefix: `${prefix}/users` });
     app.register(uploadRoutes, { prefix: `${prefix}/upload` });
+    app.register(adminRoutes, { prefix: `${prefix}/admin` });
+    app.register(serverRoutes, { prefix: `${prefix}/servers` });
   };
 
   registerApiRoutes('/api/v1');
