@@ -11,6 +11,13 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1024M
+        reservations:
+          memory: 256M
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d discord"]
       interval: 10s
@@ -20,11 +27,19 @@ services:
   redis:
     image: redis:7
     container_name: discord_redis
+    command: redis-server --maxmemory 200mb --maxmemory-policy volatile-lru
     ports:
       - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 256M
+        reservations:
+          memory: 64M
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -44,8 +59,13 @@ services:
     volumes:
       - minio_data:/data
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
     healthcheck:
-      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9000'"]
+      test: ["CMD", "mc", "ready", "local"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -56,12 +76,13 @@ services:
       dockerfile: apps/server/Dockerfile
     container_name: discord_server
     environment:
-      DATABASE_URL: postgresql://postgres:password@postgres:5432/discord?schema=public
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-password}@postgres:5432/discord?schema=public
       REDIS_URL: redis://redis:6379
       JWT_SECRET: local-development-secret-change-in-production
       FRONTEND_URL: https://levicord.uk
       OAUTH_CALLBACK_URL: https://levicord.uk/api/auth/google/callback
       NODE_ENV: development
+      NODE_OPTIONS: "--max-old-space-size=768"
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
       ADMIN_EMAILS: ${ADMIN_EMAILS}
@@ -81,6 +102,14 @@ services:
     ports:
       - "127.0.0.1:3000:3000"
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1024M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
 
   web:
     build:
@@ -88,14 +117,39 @@ services:
       dockerfile: apps/web/Dockerfile
       args:
         VITE_API_URL: https://levicord.uk
+        VITE_TURN_USER: ${TURN_USER:-turn}
+        VITE_TURN_PASSWORD: ${TURN_PASSWORD:-turn}
     container_name: discord_web
     environment:
       VITE_API_URL: https://levicord.uk
+      VITE_TURN_USER: ${TURN_USER:-turn}
+      VITE_TURN_PASSWORD: ${TURN_PASSWORD:-turn}
     ports:
       - "127.0.0.1:5173:80"
     depends_on:
       - server
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+
+  coturn:
+    image: coturn/coturn:latest
+    container_name: discord_coturn
+    network_mode: host
+    command: >
+      -n --log-file=stdout
+      --min-port=49152 --max-port=65535
+      --lt-cred-mech --fingerprint
+      --realm=levicord.uk
+      --user=${TURN_USER:-turn}:${TURN_PASSWORD:-turn}
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
 
   cloudflared:
     image: cloudflare/cloudflared:latest
@@ -104,6 +158,11 @@ services:
     environment:
       - TUNNEL_TOKEN=${CLOUDFLARED_TOKEN}
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
 
   prometheus:
     image: prom/prometheus:latest
@@ -116,6 +175,11 @@ services:
     depends_on:
       - server
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
 
   grafana:
     image: grafana/grafana:latest
@@ -129,6 +193,11 @@ services:
     depends_on:
       - prometheus
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
 
 volumes:
   postgres_data:

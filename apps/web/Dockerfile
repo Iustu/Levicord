@@ -17,6 +17,10 @@ RUN pnpm --filter @discord-clone/shared build
 WORKDIR /app/apps/web
 ARG VITE_API_URL=https://levicord.uk
 ENV VITE_API_URL=$VITE_API_URL
+ARG VITE_TURN_USER
+ENV VITE_TURN_USER=$VITE_TURN_USER
+ARG VITE_TURN_PASSWORD
+ENV VITE_TURN_PASSWORD=$VITE_TURN_PASSWORD
 RUN pnpm build
 
 FROM nginx:1.27-alpine

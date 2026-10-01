@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Mic, MicOff, Video, VideoOff, PhoneOff, AlertTriangle, Monitor, MonitorOff, Sliders } from 'lucide-react';
 import { useWebRTC } from '../hooks/useWebRTC';
 import type { ScreenShareResolution, ScreenShareFps } from '../lib/screenShare';
@@ -6,12 +6,14 @@ import { useChatStore } from '../stores/useChatStore';
 import { ScreenShareModal } from './ScreenShareModal';
 import './WebRTCGrid.css';
 
-function VideoPlayer({
+// OPT-08: React.memo evita re-render desnecessário de VideoPlayer quando estado alheio muda no grid
+const VideoPlayer = React.memo(function VideoPlayer({
   stream,
   muted = false,
   label,
   isSpeaking = false,
   showAvatarOverlay = false,
+  streamVersion,
 }: {
   stream: MediaStream | null;
   muted?: boolean;
@@ -19,13 +21,23 @@ function VideoPlayer({
   isSpeaking?: boolean;
   /** Tarefa 1.3 — mostrar overlay de avatar quando câmera está desligada */
   showAvatarOverlay?: boolean;
+  streamVersion?: number;
 }) {
+  void streamVersion;
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
-    if (videoRef.current && stream) {
-      videoRef.current.srcObject = stream;
+    const videoEl = videoRef.current;
+    if (videoEl && stream) {
+      if (videoEl.srcObject !== stream) {
+        videoEl.srcObject = stream;
+      }
     }
+    return () => {
+      if (videoEl) {
+        videoEl.srcObject = null;
+      }
+    };
   }, [stream]);
 
   return (
@@ -45,11 +57,12 @@ function VideoPlayer({
       </div>
     </div>
   );
-}
+});
 
 export function WebRTCGrid({ channelId, onDisconnect }: { channelId: string, onDisconnect: () => void }) {
   const {
     localStream,
+    localStreamVersion,
     remoteStreams,
     isMuted,
     isVideoOff,
@@ -68,6 +81,18 @@ export function WebRTCGrid({ channelId, onDisconnect }: { channelId: string, onD
   const [isScreenShareModalOpen, setIsScreenShareModalOpen] = useState(false);
   const users = useChatStore(state => state.users);
 
+  // OPT-07: Memoiza mapa de usuários por ID para evitar users.find() O(n*m) em cada frame de render
+  const userMap = useMemo(
+    () => Object.fromEntries(users.map(u => [u.id, u])),
+    [users]
+  );
+
+  // OPT-09: localVideoActive memoizado para não instanciar novo array de faixas a cada render
+  const localVideoActive = useMemo(
+    () => !isVideoOff && !!(localStream?.getVideoTracks?.()?.some(t => t.enabled)),
+    [localStream, isVideoOff]
+  );
+
   if (error) {
     return (
       <div className="webrtc-wrapper error-state">
@@ -78,11 +103,6 @@ export function WebRTCGrid({ channelId, onDisconnect }: { channelId: string, onD
       </div>
     );
   }
-
-  // Tarefa 1.3 — câmera local ativa se stream tem faixa de vídeo habilitada
-  const localVideoActive = !!(
-    localStream?.getVideoTracks?.()?.some(t => t.enabled)
-  );
 
   const handleScreenShareClick = () => {
     if (isScreenSharing) {
@@ -107,7 +127,7 @@ export function WebRTCGrid({ channelId, onDisconnect }: { channelId: string, onD
         <div className="screen-share-spotlight">
           <VideoPlayer
             stream={remoteStreams[screenSharerSocketId].stream}
-            label={`${users.find(u => u.id === remoteStreams[screenSharerSocketId].userId)?.displayName ?? 'Usuário'} — Tela`}
+            label={`${userMap[remoteStreams[screenSharerSocketId].userId]?.displayName ?? 'Usuário'} — Tela`}
           />
         </div>
       )}
@@ -115,6 +135,7 @@ export function WebRTCGrid({ channelId, onDisconnect }: { channelId: string, onD
       <div className="webrtc-grid">
         <VideoPlayer
           stream={localStream}
+          streamVersion={localStreamVersion}
           muted={true}
           label="Você"
           isSpeaking={!isMuted && !!localStream}
@@ -122,7 +143,7 @@ export function WebRTCGrid({ channelId, onDisconnect }: { channelId: string, onD
         />
         
         {Object.entries(remoteStreams).map(([socketId, data]) => {
-          const user = users.find(u => u.id === data.userId);
+          const user = userMap[data.userId];
           const label = user ? user.displayName : 'Usuário';
           const remoteVideoActive = !!(data.stream?.getVideoTracks?.()?.some(t => t.enabled));
           return (

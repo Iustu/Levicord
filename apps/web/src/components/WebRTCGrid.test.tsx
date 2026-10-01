@@ -18,6 +18,7 @@ function createMockStream(hasVideo = true) {
 function mockUseWebRTC(overrides: Partial<ReturnType<typeof webRtcHook.useWebRTC>> = {}) {
   const defaults: ReturnType<typeof webRtcHook.useWebRTC> = {
     localStream: createMockStream(true),
+    localStreamVersion: 0,
     remoteStreams: {},
     isMuted: false,
     isVideoOff: false,

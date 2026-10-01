@@ -1,511 +1,315 @@
-# Backlog Playbook — Webcam e Compartilhamento de Tela
+# Backlog — Otimizações Computacionais e Hardware
 
-> Analise tecnica baseada no codigo existente em `apps/web/src/hooks/useWebRTC.ts`,
-> `apps/server/src/socket/voiceHandler.ts` e `apps/web/src/components/WebRTCGrid.tsx`.
->
-> Objetivo: implementar **video de webcam** e **compartilhamento de tela** de forma
-> incremental, sem quebrar o que ja funciona (audio P2P).
+Severidade: 🔴 Alto · 🟡 Médio · 🟢 Baixo
 
 ---
 
-## Estado Atual — O que ja existe
+## WebRTC / Frontend
 
-| Componente | Arquivo | Estado |
-|-----------|---------|--------|
-| Sinalizador WebRTC (offer/answer/ICE) | `voiceHandler.ts` | Completo |
-| Hook `useWebRTC` com peer connections P2P | `useWebRTC.ts` | Completo |
-| `toggleVideo()` com `getUserMedia({video:true})` | `useWebRTC.ts:185-207` | Implementado, sem UI conectada |
-| `isVideoOff` state e botao na UI | `WebRTCGrid.tsx:75-76` | Botao existe, funcao existe |
-| `VideoPlayer` component com `<video>` | `WebRTCGrid.tsx:7-35` | Completo |
-| Transceivers `recvonly` para audio e video | `useWebRTC.ts:74-82` | Completo |
-| Estado `isVideoOff=true` por padrao | `useWebRTC.ts:13` | Correto |
+### 🔴 OPT-01 — Codec capabilities cacheado globalmente, não por peer
 
-**Conclusao**: webcam ja tem ~70% da implementacao de fundo. O botao de video ja existe
-e chama `toggleVideo()`. A lacuna e que `addTrack` apos conexao estabelecida nao
-dispara re-negociacao automaticamente nos peers existentes. Falta o **renegotiation flow**.
+**Arquivo:** `apps/web/src/hooks/useWebRTC.ts` — `applyHardwareAcceleratedCodecPreferences`
 
-Compartilhamento de tela nao existe ainda (zero codigo).
+**Problema:** `RTCRtpReceiver.getCapabilities('video')` retorna sempre o mesmo resultado (capacidades do browser, estáticas). Está sendo chamado dentro de `createPeer`, ou seja, **uma vez por participante** que entra na chamada. N peers = N chamadas desnecessárias.
+
+**Fix:**
+```ts
+// Fora do componente/hook, ao nível do módulo:
+const _cachedCodecs: RTCRtpCodecCapability[] | null = (() => {
+  if (typeof RTCRtpReceiver === 'undefined' || !RTCRtpReceiver.getCapabilities) return null;
+  const caps = RTCRtpReceiver.getCapabilities('video');
+  if (!caps?.codecs?.length) return null;
+  return [...caps.codecs].sort((a, b) => {
+    const rank = (m: string) => {
+      const l = m.toLowerCase();
+      if (l === 'video/h264') return 1;
+      if (l === 'video/av1')  return 2;
+      if (l === 'video/vp9')  return 3;
+      if (l === 'video/vp8')  return 4;
+      return 5;
+    };
+    return rank(a.mimeType) - rank(b.mimeType);
+  });
+})();
+
+function applyHardwareAcceleratedCodecPreferences(t: RTCRtpTransceiver) {
+  if (_cachedCodecs && typeof t.setCodecPreferences === 'function') {
+    try { t.setCodecPreferences(_cachedCodecs); } catch {}
+  }
+}
+```
 
 ---
 
-## Feature 1 — Video de Webcam
+### 🔴 OPT-02 — Race condition em `onnegotiationneeded` (glare WebRTC)
 
-### Diagnostico do gap atual
+**Arquivo:** `apps/web/src/hooks/useWebRTC.ts:165`
 
-O `toggleVideo()` atual (linha 185-207 de `useWebRTC.ts`) adiciona a faixa de video
-(`addTrack`) nos peers ja existentes, mas **nao dispara re-negociacao**.
+**Problema:** `onnegotiationneeded` não verifica `signalingState !== 'stable'` antes de criar offer. Se dois peers renegociam simultaneamente ou o evento dispara enquanto uma negociação já está em curso, o browser entra em estado "glare" — chamada cai ou fica em loop de renegociação infinito.
 
-Na spec WebRTC, `addTrack` em uma `RTCPeerConnection` ja estabelecida coloca a
-conexao em estado `have-local-offer` pendente — o navegador nao cria e envia um
-novo offer automaticamente. E necessario detectar o evento `negotiationneeded` e
-iniciar um novo ciclo offer/answer.
-
-```
-Estado atual:
-  toggleVideo() → addTrack() → [sem re-negociacao] → peers remotos nunca recebem o video
-
-Estado correto:
-  toggleVideo() → addTrack() → onNegotiationNeeded() → createOffer() → socket offer → answer → video fluindo
-```
-
-### Plano de implementacao — Webcam
-
-#### Tarefa 1.1 — Adicionar handler `onnegotiationneeded` em `createPeer()`
-
-**Arquivo**: `apps/web/src/hooks/useWebRTC.ts`
-
-Dentro da funcao `createPeer()` (linha 63), apos criar o `RTCPeerConnection`,
-adicionar:
-
-```typescript
+**Fix:**
+```ts
 peer.onnegotiationneeded = async () => {
+  if (peer.signalingState !== 'stable') return; // ← adicionar esta guarda
   try {
-    // Evitar race condition: so renegociar se conexao ainda aberta
-    if (peer.signalingState === 'closed') return;
     const offer = await peer.createOffer();
     await peer.setLocalDescription(offer);
     socket?.emit('webrtc_offer', { targetSocketId, offer, channelId });
   } catch (err) {
-    console.warn('Re-negociacao falhou:', err);
+    console.warn('Re-negociação falhou:', err);
   }
 };
 ```
 
-**Por que funciona**: o browser dispara `onnegotiationneeded` automaticamente apos
-`addTrack()`. O handler reusa o mesmo canal de sinalizacao existente (socket.io).
-Nenhuma mudanca no servidor necessaria.
+---
 
-#### Tarefa 1.2 — Corrigir `toggleVideo()` para usar `replaceTrack` quando possivel
+### 🔴 OPT-03 — ICE candidates sem fila de buffer (falha silenciosa em NAT)
 
-**Arquivo**: `apps/web/src/hooks/useWebRTC.ts`, linha 185-207
+**Arquivo:** `apps/web/src/hooks/useWebRTC.ts:218`
 
-Quando o video ja foi adicionado antes (track existe mas esta `enabled=false`),
-prefer `enabled = true` em vez de adicionar nova faixa. Quando nao existe faixa,
-usar `RTCRtpSender.replaceTrack()` em vez de `addTrack()` para evitar multiplas
-faixas de video na mesma conexao:
+**Problema:** `handleCandidate` chama `peer.addIceCandidate` diretamente. Se o evento `webrtc_ice_candidate` chegar antes do `setRemoteDescription` concluir (comum em redes lentas), o `addIceCandidate` lança `InvalidStateError`. A chamada falha silenciosamente.
 
-```typescript
-const toggleVideo = async () => {
-  if (!localStreamRef.current) return;
-  const videoTrack = localStreamRef.current.getVideoTracks()[0];
+**Fix:** Buffer de candidatos por peer:
+```ts
+const iceCandidateQueues = useRef<Record<string, RTCIceCandidateInit[]>>({});
 
-  if (videoTrack) {
-    // Faixa ja existe — apenas ligar/desligar
-    videoTrack.enabled = !videoTrack.enabled;
-    setIsVideoOff(!videoTrack.enabled);
-    return;
-  }
+// Em handleCandidate:
+const peer = peersRef.current[fromSocketId];
+if (!peer || peer.remoteDescription === null) {
+  iceCandidateQueues.current[fromSocketId] ??= [];
+  iceCandidateQueues.current[fromSocketId].push(candidate);
+  return;
+}
+await peer.addIceCandidate(new RTCIceCandidate(candidate));
 
-  // Nao tem faixa — pedir permissao e adicionar via replaceTrack
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-    const newTrack = stream.getVideoTracks()[0];
-    if (!newTrack) return;
-
-    localStreamRef.current.addTrack(newTrack);
-
-    // replaceTrack nos senders existentes (evita duplicatas)
-    for (const peer of Object.values(peersRef.current)) {
-      const videoSender = peer.getSenders().find(s => s.track?.kind === 'video');
-      if (videoSender) {
-        await videoSender.replaceTrack(newTrack);
-      } else {
-        peer.addTrack(newTrack, localStreamRef.current!);
-        // onnegotiationneeded vai disparar automaticamente
-      }
-    }
-
-    setLocalStream(new MediaStream(localStreamRef.current.getTracks()));
-    setIsVideoOff(false);
-  } catch (err) {
-    console.warn('Camera nao encontrada ou permissao negada:', err);
-  }
-};
+// No final de handleOffer e handleAnswer, após setRemoteDescription:
+const queued = iceCandidateQueues.current[fromSocketId] ?? [];
+for (const c of queued) await peer.addIceCandidate(new RTCIceCandidate(c));
+delete iceCandidateQueues.current[fromSocketId];
 ```
-
-#### Tarefa 1.3 — Indicador visual "camera ligada" no VideoPlayer
-
-**Arquivo**: `apps/web/src/components/WebRTCGrid.tsx`
-
-O `VideoPlayer` ja renderiza a `<video>`. Quando `isVideoOff=true` e stream local
-nao tem faixa de video ativa, mostrar avatar do utilizador em vez de tela preta:
-
-```tsx
-// Dentro de VideoPlayer, apos o <video>:
-{(!stream || stream.getVideoTracks().every(t => !t.enabled)) && (
-  <div className="video-avatar-overlay" aria-hidden="true">
-    <Avatar userId={userId} size={64} />
-  </div>
-)}
-```
-
-Prop `userId` precisa ser passada ao `VideoPlayer` — ja existe `data.userId` no
-`remoteStreams` (linha 95 de `useWebRTC.ts`), so passar ao componente.
-
-#### Tarefa 1.4 — Desligar camera ao sair da chamada
-
-**Arquivo**: `apps/web/src/hooks/useWebRTC.ts`, funcao cleanup (linha 48-57)
-
-Ja existe `.getTracks().forEach(track => track.stop())`. Nenhuma mudanca necessaria —
-tracks de video tambem sao parados. Verificar que o `MediaStream` local inclui
-os tracks de video quando a cleanup roda.
 
 ---
 
-### Estimativa de esforco — Webcam
+### 🟡 OPT-04 — `stopScreenShare` usa label de track (frágil, browser-dependente)
 
-| Tarefa | Complexidade | Tempo estimado |
-|--------|-------------|---------------|
-| 1.1 `onnegotiationneeded` | Baixa — 5 linhas | 30min |
-| 1.2 `toggleVideo` com `replaceTrack` | Media — 20 linhas | 1h |
-| 1.3 Avatar overlay no VideoPlayer | Baixa — 10 linhas + CSS | 30min |
-| 1.4 Cleanup (verificar) | Minima | 15min |
-| Testes unitarios (mock getUserMedia) | Media | 1h |
-| **Total** | | **~3h** |
+**Arquivo:** `apps/web/src/hooks/useWebRTC.ts:476`
 
-### Sinais de validacao
+**Problema:** `s.track?.label?.toLowerCase().includes('screen')` — o formato do label de tracks de `getDisplayMedia` não é especificado pelo W3C. Chrome usa `"screen:0"`, Firefox usa `"Screen"`, Safari usa string vazia. Em alguns browsers, o `find` retorna `undefined` e o sender de tela fica na conexão vazando bitrate.
 
-- [ ] Ao clicar o botao de camera, video local aparece no `WebRTCGrid`
-- [ ] Peer remoto recebe o video sem recarregar a pagina
-- [ ] Ao desligar camera, tela do remoto para de mostrar video (track.enabled=false)
-- [ ] Ao sair da chamada, camera LED do sistema apaga (tracks paradas)
-- [ ] Em modo ouvinte (sem microfone), video funciona independentemente
+**Fix:** Rastrear o sender ref diretamente:
+```ts
+// Adicionar ref:
+const screenSendersRef = useRef<Map<string, RTCRtpSender>>(new Map());
+
+// Em startScreenShare, ao addTrack:
+for (const [id, peer] of Object.entries(peersRef.current)) {
+  const sender = peer.addTrack(screenTrack, screenStream);
+  screenSendersRef.current.set(id, sender);
+}
+
+// Em stopScreenShare:
+for (const [id, peer] of Object.entries(peersRef.current)) {
+  const sender = screenSendersRef.current.get(id);
+  if (sender) peer.removeTrack(sender);
+}
+screenSendersRef.current.clear();
+```
 
 ---
 
-## Feature 2 — Compartilhamento de Tela
+### 🟡 OPT-05 — `applyConstraints` duplicado em `startScreenShare`
 
-### Diagnostico do gap atual
+**Arquivo:** `apps/web/src/hooks/useWebRTC.ts:406-413`
 
-Nao existe nenhum codigo de screen share. E necessario implementar do zero,
-mas a infra de sinalizacao (voiceHandler) ja suporta — usa os mesmos
-`webrtc_offer`, `webrtc_answer`, `webrtc_ice_candidate`.
+**Problema:** Constraints são passados para `getDisplayMedia` (o browser aplica na captura) e depois imediatamente re-aplicados via `applyConstraints` na mesma track. A segunda chamada é redundante — a track acabou de ser criada com essas constraints — e faz uma round-trip desnecessária com o media pipeline.
 
-O desafio principal e que screen share e **uma segunda faixa de video** na mesma
-`RTCPeerConnection` — nao substitui a webcam. Os peers precisam distinguir qual
-faixa e camera e qual e tela.
+**Fix:** Remover o bloco `try { await screenTrack.applyConstraints(...) }` em `startScreenShare`. Manter apenas em `changeScreenShareQuality` (lá faz sentido pois altera track já existente).
 
-WebRTC nao tem metadado nativo de "tipo de faixa". A solucao padrao e usar
-`RTCRtpSender.setParameters()` com um encoding ID customizado, ou mais simplesmente,
-uma **segunda RTCPeerConnection** dedicada ao screen share (abordagem Discord).
+---
 
-**Abordagem recomendada: `RTCRtpTransceiver.mid` + sinalizacao de metadata via socket**
+### 🟡 OPT-06 — `new MediaStream(tracks)` desnecessário em `toggleMute` / `toggleVideo`
 
-A cada `addTrack` de screen share, o servidor retransmite um evento extra
-`screen_share_started` com `{ fromUserId, socketId }`. O cliente receptor
-sabe que a proxima faixa de video e tela, nao webcam.
+**Arquivo:** `apps/web/src/hooks/useWebRTC.ts:319, 367`
 
-### Plano de implementacao — Screen Share
+**Problema:** `setLocalStream(new MediaStream(localStreamRef.current.getTracks()))` cria um novo objeto `MediaStream`, forçando `useEffect` no `VideoPlayer` a reatribuir `video.srcObject`. Isso causa um flash no vídeo local e re-inicializa o pipeline de decoding do browser sem necessidade — o stream não mudou, só foi adicionada uma track.
 
-#### Tarefa 2.1 — Novos eventos socket no servidor
+**Fix:** Notificar o React de mudança via contador sem recriar o stream:
+```ts
+const [localStreamVersion, setLocalStreamVersion] = useState(0);
+// No lugar de setLocalStream(new MediaStream(...)):
+setLocalStreamVersion(v => v + 1);
+// VideoPlayer recebe localStream (mesmo ref) + version como key secundária se necessário
+```
 
-**Arquivo**: `apps/server/src/socket/voiceHandler.ts`
+---
 
-Adicionar dois eventos relay (mesmo padrao dos existentes — apenas relay autorizado):
+### 🟡 OPT-07 — `users.find()` em O(n×m) dentro do render loop
 
-```typescript
-// Dentro de registerVoiceHandler, apos webrtc_ice_candidate:
+**Arquivo:** `apps/web/src/components/WebRTCGrid.tsx:131`
 
-socket.on('screen_share_started', (data: { channelId: string }) => {
-  if (socket.data.voiceChannelId !== data.channelId) return;
-  // Avisar todos no canal que este utilizador iniciou screen share
-  socket.to(`voice_${data.channelId}`).emit('screen_share_started', {
-    fromUserId: userId,
-    fromSocketId: socket.id,
-  });
-});
+**Problema:** Para cada `remoteStream` (potencialmente 10-20 peers), faz `users.find()` que percorre o array `users` inteiro. Em canais grandes: 20 peers × 100 usuários no store = 2.000 comparações em cada re-render do componente.
 
-socket.on('screen_share_stopped', (data: { channelId: string }) => {
-  if (socket.data.voiceChannelId !== data.channelId) return;
-  socket.to(`voice_${data.channelId}`).emit('screen_share_stopped', {
-    fromUserId: userId,
-    fromSocketId: socket.id,
-  });
+**Fix:** Memoizar o mapa:
+```ts
+const userMap = useMemo(
+  () => Object.fromEntries(users.map(u => [u.id, u])),
+  [users]
+);
+// Uso: userMap[data.userId]?.displayName ?? 'Usuário'
+```
+
+---
+
+### 🟢 OPT-08 — `VideoPlayer` re-renderiza em mudanças não relacionadas
+
+**Arquivo:** `apps/web/src/components/WebRTCGrid.tsx:9`
+
+**Problema:** `VideoPlayer` é um componente puro sem `React.memo`. Qualquer mudança de estado no `WebRTCGrid` (e.g. abrir `ScreenShareModal`, mudar `isScreenSharing`) causa re-render de todos os `VideoPlayer` ativos. Em chamadas com 10+ participantes, cada clique no botão de configuração re-renderiza todos.
+
+**Fix:**
+```ts
+const VideoPlayer = React.memo(function VideoPlayer({ stream, muted, label, isSpeaking, showAvatarOverlay }: ...) {
+  // ... mesmo conteúdo
 });
 ```
 
-Nenhuma mudanca no schema Prisma ou no banco — so relay de eventos em memoria.
+---
 
-#### Tarefa 2.2 — `startScreenShare()` no hook `useWebRTC`
+### 🟢 OPT-09 — `localVideoActive` recalculado em cada render
 
-**Arquivo**: `apps/web/src/hooks/useWebRTC.ts`
+**Arquivo:** `apps/web/src/components/WebRTCGrid.tsx:89`
 
-Adicionar estado e funcao:
+**Problema:** `localStream?.getVideoTracks?.()?.some(t => t.enabled)` cria um array de tracks a cada render via `getVideoTracks()`. Barato individualmente, mas executado em cada re-render (controle de mute, abertura de modal, etc.).
 
-```typescript
-const [isScreenSharing, setIsScreenSharing] = useState(false);
-const screenTrackRef = useRef<MediaStreamTrack | null>(null);
-
-const startScreenShare = async () => {
-  if (!localStreamRef.current || !channelId) return;
-
-    // Configurações suportadas: 720p, 480p e 240p | FPS: 60, 45 e 30
-    const screenStream = await navigator.mediaDevices.getDisplayMedia({
-      video: {
-        displaySurface: 'monitor',   // preferencia: monitor inteiro
-        frameRate: { ideal: chosenFps, max: chosenFps }, // 60, 45 ou 30 fps
-        width: { ideal: targetConfig.width, max: targetConfig.width },   // 720p (1280x720), 480p (854x480) ou 240p (426x240)
-        height: { ideal: targetConfig.height, max: targetConfig.height },
-      },
-      audio: false, // audio de sistema e tratado separadamente
-    });
-
-    const screenTrack = screenStream.getVideoTracks()[0];
-    if (!screenTrack) return;
-
-    screenTrackRef.current = screenTrack;
-
-    // Adicionar faixa de tela em cada peer
-    for (const peer of Object.values(peersRef.current)) {
-      peer.addTrack(screenTrack, screenStream);
-      // onnegotiationneeded dispara automaticamente
-    }
-
-    // Avisar peers que este utilizador iniciou screen share
-    socket?.emit('screen_share_started', { channelId });
-    setIsScreenSharing(true);
-
-    // Listener: utilizador clicou "Parar partilha" no navegador
-    screenTrack.onended = () => {
-      stopScreenShare();
-    };
-  } catch (err) {
-    // Utilizador cancelou o seletor de janela — nao e erro critico
-    console.warn('Screen share cancelado ou negado:', err);
-  }
-};
-
-const stopScreenShare = () => {
-  if (screenTrackRef.current) {
-    screenTrackRef.current.stop();
-    screenTrackRef.current = null;
-  }
-
-  // Remover faixa de tela dos peers
-  for (const peer of Object.values(peersRef.current)) {
-    const sender = peer.getSenders().find(
-      s => s.track?.kind === 'video' && s.track?.label?.includes('screen')
-    );
-    if (sender) {
-      peer.removeTrack(sender);
-      // onnegotiationneeded dispara automaticamente
-    }
-  }
-
-  socket?.emit('screen_share_stopped', { channelId });
-  setIsScreenSharing(false);
-};
-```
-
-**Retornar do hook**: adicionar `isScreenSharing`, `startScreenShare`, `stopScreenShare`
-ao objeto retornado em linha 209.
-
-#### Tarefa 2.3 — Distinguir faixa de tela no receptor
-
-**Arquivo**: `apps/web/src/hooks/useWebRTC.ts`
-
-Adicionar estado para rastrear qual socketId esta partilhando a tela:
-
-```typescript
-const [screenSharerSocketId, setScreenSharerSocketId] = useState<string | null>(null);
-
-// Dentro do useEffect de listeners de socket:
-socket.on('screen_share_started', ({ fromSocketId }: { fromSocketId: string }) => {
-  setScreenSharerSocketId(fromSocketId);
-});
-
-socket.on('screen_share_stopped', ({ fromSocketId }: { fromSocketId: string }) => {
-  setScreenSharerSocketId(prev => prev === fromSocketId ? null : prev);
-});
-
-// cleanup:
-socket.off('screen_share_started', ...);
-socket.off('screen_share_stopped', ...);
-```
-
-#### Tarefa 2.4 — UI: botao Screen Share e layout dedicado
-
-**Arquivo**: `apps/web/src/components/WebRTCGrid.tsx`
-
-Adicionar botao ao lado dos controles existentes:
-
-```tsx
-import { Monitor, MonitorOff } from 'lucide-react';
-
-// No WebRTCGrid, receber as novas props do hook:
-const {
-  localStream, remoteStreams,
-  isMuted, isVideoOff,
-  isScreenSharing, screenSharerSocketId,
-  toggleMute, toggleVideo,
-  startScreenShare, stopScreenShare,
-  error
-} = useWebRTC(channelId, true);
-
-// Botao no webrtc-controls:
-<button
-  className={`control-btn ${isScreenSharing ? 'active' : ''}`}
-  onClick={isScreenSharing ? stopScreenShare : startScreenShare}
-  aria-label={isScreenSharing ? 'Parar Partilha de Tela' : 'Partilhar Tela'}
-  title={isScreenSharing ? 'Parar Partilha de Tela' : 'Partilhar Tela'}
->
-  {isScreenSharing ? <MonitorOff size={20} /> : <Monitor size={20} />}
-</button>
-```
-
-**Layout da tela partilhada**: quando `screenSharerSocketId` esta ativo, renderizar
-a stream correspondente num tile maior (destaque), como o Discord faz:
-
-```tsx
-// Antes do grid normal, mostrar tela em destaque se alguem estiver partilhando:
-{screenSharerSocketId && remoteStreams[screenSharerSocketId] && (
-  <div className="screen-share-spotlight">
-    <VideoPlayer
-      stream={remoteStreams[screenSharerSocketId].stream}
-      label={`${getNomeDoUsuario(screenSharerSocketId)} — Tela`}
-    />
-  </div>
-)}
-
-// Grid normal abaixo (webcams e voz)
-<div className="webrtc-grid">
-  {/* ... tiles de webcam existentes ... */}
-</div>
-```
-
-#### Tarefa 2.5 — CSS: layout spotlight
-
-**Arquivo**: `apps/web/src/components/WebRTCGrid.css`
-
-```css
-.screen-share-spotlight {
-  width: 100%;
-  flex: 1;
-  min-height: 0;
-  background: #000;
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.screen-share-spotlight video {
-  width: 100%;
-  height: 100%;
-  object-fit: contain; /* nao cortar — tela completa visivel */
-}
-
-/* Quando spotlight ativo, reduzir grid de webcams */
-.webrtc-wrapper:has(.screen-share-spotlight) .webrtc-grid {
-  max-height: 120px;
-}
-
-.webrtc-wrapper:has(.screen-share-spotlight) .video-container {
-  width: 100px;
-  height: 75px;
-}
-
-/* Botao ativo (verde) para screen share em andamento */
-.control-btn.active {
-  background: var(--color-success, #23a55a);
-  color: #fff;
-}
+**Fix:**
+```ts
+const localVideoActive = useMemo(
+  () => !!(localStream?.getVideoTracks?.()?.some(t => t.enabled)),
+  [localStream, isVideoOff] // isVideoOff é o sinal de mudança real
+);
 ```
 
 ---
 
-### Estimativa de esforco — Screen Share
+## Docker / Infraestrutura
 
-| Tarefa | Complexidade | Tempo estimado |
-|--------|-------------|---------------|
-| 2.1 Novos eventos relay no servidor | Baixa — 15 linhas | 30min |
-| 2.2 `startScreenShare` / `stopScreenShare` | Media — 40 linhas | 1.5h |
-| 2.3 Estado `screenSharerSocketId` | Baixa — 15 linhas | 30min |
-| 2.4 Botao + layout spotlight | Media — 30 linhas JSX | 1h |
-| 2.5 CSS spotlight | Baixa — 20 linhas | 30min |
-| Testes unitarios (mock getDisplayMedia) | Media | 1.5h |
-| **Total** | | **~5.5h** |
+### 🔴 OPT-10 — `DATABASE_URL` ignora `${POSTGRES_PASSWORD}` — senha hardcoded
+
+**Arquivo:** `docker-compose.yml:79`
+
+**Problema:** O container `server` tem `DATABASE_URL: postgresql://postgres:password@...` com senha literal `password`, ignorando a env var `${POSTGRES_PASSWORD:-password}` definida para o Postgres. Se a senha for trocada via env, o server não conecta.
+
+**Fix:**
+```yaml
+DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-password}@postgres:5432/discord?schema=public
+```
 
 ---
 
-## Ordem de Implementacao Recomendada
+### 🔴 OPT-11 — MinIO healthcheck quebrado em imagem distroless
 
+**Arquivo:** `docker-compose.yml:68`
+
+**Problema:** `cgr.dev/chainguard/minio:latest` é uma imagem distroless — sem shell (`bash`, `sh`). O healthcheck `CMD-SHELL "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9000'"` falha sempre (`exec: bash: not found`), deixando o container eternamente em estado `starting`. Os serviços que dependem do MinIO (`condition: service_healthy`) nunca sobem.
+
+**Fix:** Usar MinIO Client incluído na imagem:
+```yaml
+healthcheck:
+  test: ["CMD", "mc", "ready", "local"]
+  interval: 10s
+  timeout: 5s
+  retries: 5
 ```
-Semana 1 — Webcam funcionando corretamente
-  1.1 onnegotiationneeded (30min) — desbloqueia tudo
-  1.2 toggleVideo com replaceTrack (1h)
-  1.3 Avatar overlay (30min)
-  Testes (1h)
-
-Semana 2 — Screen Share
-  2.1 Eventos servidor (30min)
-  2.2 startScreenShare/stopScreenShare (1.5h)
-  2.3 Estado receptor (30min)
-  2.4 UI + botao (1h)
-  2.5 CSS (30min)
-  Testes (1.5h)
-```
-
-Webcam primeiro porque a infra de renegociacao (Tarefa 1.1) e prerequisito
-para screen share tambem funcionar. Implementar fora de ordem vai duplicar trabalho.
 
 ---
 
-## Limitacoes de Escala — P2P vs SFU
+### 🟡 OPT-12 — Redis `maxmemory` igual ao limite Docker (sem headroom)
 
-O sistema atual usa **WebRTC P2P em malha completa** (full mesh).
-Cada participante envia sua stream para TODOS os outros.
+**Arquivo:** `docker-compose.yml:31,38`
 
+**Problema:** Redis configurado com `--maxmemory 256mb` e container limitado a `memory: 256M`. O Redis consome memória além dos dados (overhead de conexões, buffers de output, estruturas internas — ~10-20MB). Quando o processo ultrapassa 256MB, o OOM killer do kernel mata o container antes do Redis aplicar a política `volatile-lru`.
+
+**Fix:** Reduzir `maxmemory` para 80% do limite:
+```yaml
+command: redis-server --maxmemory 200mb --maxmemory-policy volatile-lru
 ```
-4 participantes com video (720p):
-  Cada peer envia para 3 outros = 3 streams enviadas
-  Total de streams: 4 × 3 = 12 streams simultaneas
-  Banda estimada por stream 720p: ~1.5 Mbps
-  Banda total: 12 × 1.5 = 18 Mbps saindo de cada cliente
-```
-
-| Participantes | Upload necessario por cliente |
-|---|---|
-| 2 | ~1.5 Mbps |
-| 4 | ~4.5 Mbps |
-| 6 | ~7.5 Mbps |
-| 10 | ~13.5 Mbps |
-| 25 (MAX_VOICE_PARTICIPANTS atual) | ~36 Mbps — inviavel |
-
-**Conclusao para dev e testes pequenos (2-6 pessoas)**: P2P funciona perfeitamente.
-**Para producao com grupos maiores**: necessario migrar para SFU (Selective Forwarding Unit).
-
-### Opcoes SFU para o futuro
-
-| Solucao | Self-hosted | Custo | Complexidade de integracao |
-|---------|------------|-------|--------------------------|
-| **mediasoup** | Sim | Gratis | Alta (Node.js nativo, ideal para este stack) |
-| **LiveKit** | Sim / Cloud | Free tier + pago | Media (SDK bem documentado) |
-| **Janus Gateway** | Sim | Gratis | Alta (C, requer proxy) |
-| **Cloudflare Calls** | Nao | Pago por minuto | Baixa (API REST simples) |
-
-Recomendacao para quando o P2P chegar no limite: **LiveKit** ou **mediasoup**.
-mediasoup e o mais alinhado ao stack atual (Node.js) e sem dependencia de cloud.
-A API de sinalizacao do voiceHandler ja usa padrao compativel (offer/answer/ICE).
 
 ---
 
-## Consideracoes de Seguranca
+### 🟡 OPT-13 — Sem TURN server (falha em NAT simétrico ~20% usuários)
 
-### Ja garantido pelo voiceHandler atual
-- Sinalizacao so ocorre entre sockets autenticados no mesmo canal (`verifySocketsInSameRoom`)
-- `webrtc_offer`, `webrtc_answer`, `webrtc_ice_candidate` so sao retransmitidos se ambos
-  os sockets estao na mesma sala `voice_{channelId}`
-- Os novos eventos `screen_share_started` / `screen_share_stopped` usam o mesmo guard
-  (`socket.data.voiceChannelId !== data.channelId`)
+**Arquivo:** `docker-compose.yml` + `apps/web/src/hooks/useWebRTC.ts:139`
 
-### Novos riscos a considerar
-- **`getDisplayMedia` nao pode ser chamado sem gesto do utilizador** (browser policy).
-  Nao chamar em `useEffect` automaticamente — apenas em resposta ao clique do botao.
-- **Permissao de camera vs. tela**: sao permissoes diferentes no navegador.
-  Erro de permissao deve ser tratado graciosamente (nao bloquear a chamada de voz).
-- **Faixa de audio do sistema** (`getDisplayMedia({audio: true})`): pode capturar
-  notificacoes e sons privados do SO. Desabilitado por padrao na Tarefa 2.2 (`audio: false`).
+**Problema:** Apenas `stun:stun.l.google.com:19302` configurado. STUN funciona em ~80% dos cenários, mas NAT simétrico (redes corporativas, 4G) requer TURN para relay. Sem TURN, chamadas falham silenciosamente.
+
+**Fix:** Adicionar serviço `coturn` no compose + configurar no cliente:
+```yaml
+# docker-compose.yml
+coturn:
+  image: coturn/coturn:latest
+  network_mode: host
+  command: >
+    -n --log-file=stdout
+    --min-port=49152 --max-port=65535
+    --lt-cred-mech --fingerprint
+    --realm=levicord.uk
+    --user=${TURN_USER:-turn}:${TURN_PASSWORD:-turn}
+  deploy:
+    resources:
+      limits:
+        cpus: '0.5'
+        memory: 128M
+```
+```ts
+// useWebRTC.ts — iceServers:
+[
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  {
+    urls: 'turn:levicord.uk:3478',
+    username: import.meta.env.VITE_TURN_USER,
+    credential: import.meta.env.VITE_TURN_PASSWORD,
+  },
+]
+```
 
 ---
 
-*Documento criado: 2026-10-01. Baseado em auditoria direta dos ficheiros:*
-*`useWebRTC.ts`, `voiceHandler.ts`, `WebRTCGrid.tsx`, `VoiceScreen.tsx`, `WebRTCGrid.css`.*
+### 🟢 OPT-14 — `server` sem reserva de CPU (pode ser starved sob carga)
+
+**Arquivo:** `docker-compose.yml:105`
+
+**Problema:** `server` tem limite de 2 CPUs mas sem `reservations.cpus`. Em host com carga alta, o scheduler do Docker pode alocar 0 CPU para o server enquanto outros containers com reservas têm prioridade garantida.
+
+**Fix:**
+```yaml
+deploy:
+  resources:
+    limits:
+      cpus: '2.0'
+      memory: 1024M
+    reservations:
+      cpus: '0.5'
+      memory: 256M
+```
+
+---
+
+## Resumo de Prioridade
+
+| ID | Severidade | Área | Impacto |
+|----|-----------|------|---------|
+| OPT-11 | 🔴 | Docker | MinIO nunca healthy → deploy quebrado |
+| OPT-10 | 🔴 | Docker | DB quebra se senha mudar |
+| OPT-02 | 🔴 | WebRTC | Glare → chamadas caem |
+| OPT-03 | 🔴 | WebRTC | ICE candidates perdidos em redes lentas |
+| OPT-01 | 🔴 | WebRTC | CPU desnecessário a cada peer join |
+| OPT-13 | 🟡 | Docker | ~20% usuários não conectam (NAT simétrico) |
+| OPT-12 | 🟡 | Docker | Redis morto por OOM killer |
+| OPT-04 | 🟡 | WebRTC | Screen share vaza bitrate em Firefox/Safari |
+| OPT-05 | 🟡 | WebRTC | Round-trip desnecessária no media pipeline |
+| OPT-06 | 🟡 | WebRTC | Flash de vídeo ao ligar mic/câmera |
+| OPT-07 | 🟡 | React | CPU em renders com muitos participantes |
+| OPT-14 | 🟢 | Docker | Server CPU starved sob carga |
+| OPT-08 | 🟢 | React | Re-renders desnecessários de VideoPlayer |
+| OPT-09 | 🟢 | React | Array allocation em cada render |
