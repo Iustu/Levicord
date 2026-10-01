@@ -153,4 +153,26 @@ export function registerVoiceHandler(
       candidate: data.candidate,
     });
   });
+
+  // Tarefa 2.1 — Relay de eventos de screen share.
+  // Mesmo guard de sala dos eventos WebRTC: só retransmite se o socket emissor
+  // está autenticado e pertence ao canal declarado (least-privilege, DevSecOps).
+
+  socket.on('screen_share_started', (data: { channelId: string }) => {
+    if (!channelIdSchema.safeParse(data.channelId).success) return;
+    if (socket.data.voiceChannelId !== data.channelId) return;
+    socket.to(`voice_${data.channelId}`).emit('screen_share_started', {
+      fromUserId: userId,
+      fromSocketId: socket.id,
+    });
+  });
+
+  socket.on('screen_share_stopped', (data: { channelId: string }) => {
+    if (!channelIdSchema.safeParse(data.channelId).success) return;
+    if (socket.data.voiceChannelId !== data.channelId) return;
+    socket.to(`voice_${data.channelId}`).emit('screen_share_stopped', {
+      fromUserId: userId,
+      fromSocketId: socket.id,
+    });
+  });
 }

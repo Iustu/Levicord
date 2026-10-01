@@ -6,6 +6,39 @@ import { useChatStore } from '../stores/useChatStore';
 
 vi.mock('../hooks/useWebRTC');
 
+function createMockStream(hasVideo = true) {
+  const track = { enabled: hasVideo, stop: vi.fn() } as unknown as MediaStreamTrack;
+  return {
+    getVideoTracks: () => (hasVideo ? [track] : []),
+    getAudioTracks: () => [],
+    getTracks: () => (hasVideo ? [track] : []),
+  } as unknown as MediaStream;
+}
+
+function mockUseWebRTC(overrides: Partial<ReturnType<typeof webRtcHook.useWebRTC>> = {}) {
+  const defaults: ReturnType<typeof webRtcHook.useWebRTC> = {
+    localStream: createMockStream(true),
+    remoteStreams: {},
+    isMuted: false,
+    isVideoOff: false,
+    isScreenSharing: false,
+    screenSharerSocketId: null,
+    screenShareResolution: '720p',
+    screenShareFps: 30,
+    toggleMute: vi.fn(),
+    toggleVideo: vi.fn(),
+    startScreenShare: vi.fn(),
+    stopScreenShare: vi.fn(),
+    changeScreenShareQuality: vi.fn(),
+    error: null,
+  };
+
+  return vi.spyOn(webRtcHook, 'useWebRTC').mockReturnValue({
+    ...defaults,
+    ...overrides,
+  });
+}
+
 describe('WebRTCGrid Component', () => {
   const onDisconnect = vi.fn();
 
@@ -20,13 +53,8 @@ describe('WebRTCGrid Component', () => {
   });
 
   it('renders error state with message and retry button when error occurs', () => {
-    vi.spyOn(webRtcHook, 'useWebRTC').mockReturnValue({
+    mockUseWebRTC({
       localStream: null,
-      remoteStreams: {},
-      isMuted: false,
-      isVideoOff: false,
-      toggleMute: vi.fn(),
-      toggleVideo: vi.fn(),
       error: 'Permissão de microfone negada.',
     });
 
@@ -41,14 +69,10 @@ describe('WebRTCGrid Component', () => {
   });
 
   it('renders local video tile and control buttons in normal state', () => {
-    vi.spyOn(webRtcHook, 'useWebRTC').mockReturnValue({
-      localStream: {} as MediaStream,
-      remoteStreams: {},
+    mockUseWebRTC({
+      localStream: createMockStream(true),
       isMuted: false,
       isVideoOff: false,
-      toggleMute: vi.fn(),
-      toggleVideo: vi.fn(),
-      error: null,
     });
 
     render(<WebRTCGrid channelId="chan-1" onDisconnect={onDisconnect} />);
@@ -56,23 +80,18 @@ describe('WebRTCGrid Component', () => {
     expect(screen.getByText('Você')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Mutar Microfone' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Desligar Câmera' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Partilhar Tela' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Desconectar' })).toBeInTheDocument();
   });
 
   it('renders remote stream tiles with participant names from store', () => {
-    vi.spyOn(webRtcHook, 'useWebRTC').mockReturnValue({
-      localStream: {} as MediaStream,
+    mockUseWebRTC({
       remoteStreams: {
         'socket-bob': {
-          stream: {} as MediaStream,
+          stream: createMockStream(true),
           userId: 'user-2',
         },
       },
-      isMuted: false,
-      isVideoOff: false,
-      toggleMute: vi.fn(),
-      toggleVideo: vi.fn(),
-      error: null,
     });
 
     render(<WebRTCGrid channelId="chan-1" onDisconnect={onDisconnect} />);
@@ -85,23 +104,17 @@ describe('WebRTCGrid Component', () => {
     const toggleMute = vi.fn();
     const toggleVideo = vi.fn();
 
-    vi.spyOn(webRtcHook, 'useWebRTC').mockReturnValue({
-      localStream: null,
-      remoteStreams: {},
-      isMuted: true,
-      isVideoOff: true,
+    mockUseWebRTC({
+      isMuted: false,
+      isVideoOff: false,
       toggleMute,
       toggleVideo,
-      error: null,
     });
 
     render(<WebRTCGrid channelId="chan-1" onDisconnect={onDisconnect} />);
 
     const muteBtn = screen.getByRole('button', { name: 'Mutar Microfone' });
     const videoBtn = screen.getByRole('button', { name: 'Desligar Câmera' });
-
-    expect(muteBtn).toHaveClass('danger');
-    expect(videoBtn).toHaveClass('danger');
 
     fireEvent.click(muteBtn);
     expect(toggleMute).toHaveBeenCalledOnce();
@@ -110,21 +123,113 @@ describe('WebRTCGrid Component', () => {
     expect(toggleVideo).toHaveBeenCalledOnce();
   });
 
-  it('triggers onDisconnect when clicking the disconnect button', () => {
-    vi.spyOn(webRtcHook, 'useWebRTC').mockReturnValue({
-      localStream: null,
-      remoteStreams: {},
-      isMuted: false,
-      isVideoOff: false,
-      toggleMute: vi.fn(),
-      toggleVideo: vi.fn(),
-      error: null,
+  it('displays danger styles and correct aria labels when muted and camera off', () => {
+    mockUseWebRTC({
+      isMuted: true,
+      isVideoOff: true,
     });
+
+    render(<WebRTCGrid channelId="chan-1" onDisconnect={onDisconnect} />);
+
+    const unmuteBtn = screen.getByRole('button', { name: 'Ativar Microfone' });
+    const turnOnCameraBtn = screen.getByRole('button', { name: 'Ligar Câmera' });
+
+    expect(unmuteBtn).toHaveClass('danger');
+    expect(turnOnCameraBtn).toHaveClass('danger');
+  });
+
+  it('triggers onDisconnect when clicking the disconnect button', () => {
+    mockUseWebRTC();
 
     render(<WebRTCGrid channelId="chan-1" onDisconnect={onDisconnect} />);
 
     const disconnectBtn = screen.getByRole('button', { name: 'Desconectar' });
     fireEvent.click(disconnectBtn);
     expect(onDisconnect).toHaveBeenCalledOnce();
+  });
+
+  it('opens ScreenShareModal and starts screen sharing with selected resolution and FPS', () => {
+    const startScreenShare = vi.fn();
+
+    mockUseWebRTC({
+      isScreenSharing: false,
+      startScreenShare,
+    });
+
+    render(<WebRTCGrid channelId="chan-1" onDisconnect={onDisconnect} />);
+
+    // Click screen share button to open configuration modal
+    const shareBtn = screen.getByRole('button', { name: 'Partilhar Tela' });
+    fireEvent.click(shareBtn);
+
+    // Verify modal opened with title and resolution/fps options
+    expect(screen.getByText('Transmitir Tela')).toBeInTheDocument();
+    expect(screen.getByTestId('option-resolution-720p')).toBeInTheDocument();
+    expect(screen.getByTestId('option-resolution-480p')).toBeInTheDocument();
+    expect(screen.getByTestId('option-resolution-240p')).toBeInTheDocument();
+    expect(screen.getByTestId('option-fps-60')).toBeInTheDocument();
+    expect(screen.getByTestId('option-fps-45')).toBeInTheDocument();
+    expect(screen.getByTestId('option-fps-30')).toBeInTheDocument();
+
+    // Select 480p resolution and 45 FPS
+    fireEvent.click(screen.getByTestId('option-resolution-480p'));
+    fireEvent.click(screen.getByTestId('option-fps-45'));
+
+    // Confirm screen share
+    fireEvent.click(screen.getByTestId('btn-confirm-screenshare'));
+
+    expect(startScreenShare).toHaveBeenCalledWith({
+      resolution: '480p',
+      fps: 45,
+    });
+  });
+
+  it('stops screen sharing when clicking button while sharing is active', () => {
+    const stopScreenShare = vi.fn();
+
+    mockUseWebRTC({
+      isScreenSharing: true,
+      stopScreenShare,
+      screenShareResolution: '720p',
+      screenShareFps: 60,
+    });
+
+    render(<WebRTCGrid channelId="chan-1" onDisconnect={onDisconnect} />);
+
+    const stopBtn = screen.getByRole('button', { name: 'Parar Partilha de Tela' });
+    fireEvent.click(stopBtn);
+
+    expect(stopScreenShare).toHaveBeenCalledOnce();
+  });
+
+  it('allows live quality changes when screen sharing is active', () => {
+    const changeScreenShareQuality = vi.fn();
+
+    mockUseWebRTC({
+      isScreenSharing: true,
+      screenShareResolution: '720p',
+      screenShareFps: 60,
+      changeScreenShareQuality,
+    });
+
+    render(<WebRTCGrid channelId="chan-1" onDisconnect={onDisconnect} />);
+
+    // Quality button should be visible with current resolution
+    const qualityBtn = screen.getByRole('button', { name: 'Configurar Qualidade da Transmissão' });
+    expect(qualityBtn).toBeInTheDocument();
+    expect(screen.getByText('720p')).toBeInTheDocument();
+
+    // Open modal in live edit mode
+    fireEvent.click(qualityBtn);
+    expect(screen.getByText('Qualidade da Transmissão')).toBeInTheDocument();
+
+    // Select 240p and 30 FPS
+    fireEvent.click(screen.getByTestId('option-resolution-240p'));
+    fireEvent.click(screen.getByTestId('option-fps-30'));
+
+    // Confirm live quality change
+    fireEvent.click(screen.getByTestId('btn-confirm-screenshare'));
+
+    expect(changeScreenShareQuality).toHaveBeenCalledWith('240p', 30);
   });
 });
