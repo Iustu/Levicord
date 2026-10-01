@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { processGoogleUser, updateUserProfile } from '../services/auth.service';
+import { prisma } from '../prisma';
 
 const googleUserInfoSchema = z.object({
   id: z.string().min(1),
@@ -20,8 +21,33 @@ export default async function authRoutes(fastify: FastifyInstance) {
       }
     },
   }, async (request) => {
-    // Return actual user object instead of just { authenticated: true }
-    return { authenticated: true, user: request.user };
+    const userId = (request.user as { sub: string }).sub;
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, displayName: true, avatarUrl: true, role: true },
+    });
+    return {
+      authenticated: true,
+      user: user ? { ...user, sub: user.id } : request.user,
+    };
+  });
+
+  fastify.get('/me', {
+    onRequest: async (request, reply) => {
+      try {
+        await request.jwtVerify();
+      } catch (error) {
+        return reply.code(401).send({ message: 'Unauthenticated' });
+      }
+    },
+  }, async (request, reply) => {
+    const userId = (request.user as { sub: string }).sub;
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, displayName: true, avatarUrl: true, role: true },
+    });
+    if (!user) return reply.code(404).send({ message: 'User not found' });
+    return user;
   });
 
   fastify.post('/refresh', async (request, reply) => {
@@ -46,14 +72,14 @@ export default async function authRoutes(fastify: FastifyInstance) {
     }
   });
 
-  fastify.patch<{ Body: { displayName: string } }>('/profile', {
+  fastify.patch<{ Body: { displayName?: string; avatarUrl?: string | null } }>('/profile', {
     schema: {
       body: {
         type: 'object',
-        required: ['displayName'],
         additionalProperties: false,
         properties: {
           displayName: { type: 'string', minLength: 2, maxLength: 32 },
+          avatarUrl: { type: ['string', 'null'], maxLength: 500 },
         },
       },
     },
@@ -65,13 +91,28 @@ export default async function authRoutes(fastify: FastifyInstance) {
       }
     },
   }, async (request, reply) => {
-    const displayName = request.body.displayName.trim();
+    const userId = (request.user as { sub: string }).sub;
+    const { displayName, avatarUrl } = request.body;
 
-    if (displayName.length < 2) {
-      return reply.code(400).send({ message: 'Display name must contain at least 2 characters' });
+    const dataToUpdate: { displayName?: string; avatarUrl?: string | null } = {};
+
+    if (displayName !== undefined) {
+      const trimmed = displayName.trim();
+      if (trimmed.length < 2) {
+        return reply.code(400).send({ message: 'Display name must contain at least 2 characters' });
+      }
+      dataToUpdate.displayName = trimmed;
     }
 
-    const user = await updateUserProfile((request.user as { sub: string }).sub, displayName);
+    if (avatarUrl !== undefined) {
+      dataToUpdate.avatarUrl = avatarUrl ? avatarUrl.trim() : null;
+    }
+
+    if (Object.keys(dataToUpdate).length === 0) {
+      return reply.code(400).send({ message: 'No fields to update' });
+    }
+
+    const user = await updateUserProfile(userId, dataToUpdate);
     return reply.send(user);
   });
 
@@ -97,8 +138,13 @@ export default async function authRoutes(fastify: FastifyInstance) {
         picture: userInfoResult.data.picture || '',
       };
 
+      const existingUser = await prisma.user.findUnique({
+        where: { googleId: userInfo.id },
+      });
+      const isNewUser = !existingUser;
+
       const user = await processGoogleUser(userInfo);
-      request.log.info({ event: 'auth_success', userId: user.id, provider: 'google' }, 'User logged in successfully');
+      request.log.info({ event: 'auth_success', userId: user.id, provider: 'google', isNewUser }, 'User logged in successfully');
 
       const accessToken = await reply.jwtSign({ sub: user.id }, { expiresIn: '15m' });
       const refreshToken = await reply.jwtSign({ sub: user.id }, { expiresIn: '7d' });
@@ -121,7 +167,13 @@ export default async function authRoutes(fastify: FastifyInstance) {
         maxAge: 7 * 24 * 60 * 60, // 7 days
       });
 
-      reply.redirect(`${frontendUrl}/setup`);
+      // New users are guided to choose their display name in /setup
+      // Returning users with saved profiles go directly to /app
+      if (isNewUser) {
+        reply.redirect(`${frontendUrl}/setup`);
+      } else {
+        reply.redirect(`${frontendUrl}/app`);
+      }
 
     } catch (err) {
       request.log.error(err);

@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Hash, Plus, Pencil, MessageCircle, Volume2, Search, X, Menu } from 'lucide-react';
+import { Hash, Plus, Pencil, MessageCircle, Volume2, Search, X, Menu, Settings, LogOut } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useChatStore } from '../stores/useChatStore';
 import { useSocket } from '../hooks/useSocket';
 import { apiFetch } from '../lib/api';
 import { CreateChannelModal } from '../components/CreateChannelModal';
+import { EditProfileModal } from '../components/EditProfileModal';
+import { Avatar } from '../components/Avatar';
 import { MessageList } from '../components/MessageList';
 import { ChatInput } from '../components/ChatInput';
 import { VoiceScreen } from '../components/VoiceScreen';
@@ -35,7 +37,10 @@ export default function MainApp() {
     channels, activeChannelId, messages, setChannels, setActiveChannelId, setMessages, prependMessages,
     users, setUsers,
     activeDmUserId, setActiveDmUserId, dms, setDms,
+    currentUser, setCurrentUser, updateCurrentUser,
   } = useChatStore();
+
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
   const { socket, joinChannel, sendMessage, sendDm, sendTypingStart, sendTypingStop } = useSocket();
 
@@ -126,6 +131,14 @@ export default function MainApp() {
   useEffect(() => {
     if (!isAuthLoading && !token) navigate('/login');
   }, [isAuthLoading, token, navigate]);
+
+  // ── Fetch current user profile ─────────────────────────────────────────────
+  useEffect(() => {
+    if (!token) return;
+    apiFetch<User>('/api/auth/me', token)
+      .then((user) => setCurrentUser(user))
+      .catch(console.error);
+  }, [token, setCurrentUser]);
 
   // ── Fetch channels ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -303,7 +316,19 @@ export default function MainApp() {
       />
       {/* ── Sidebar ────────────────────────────────────────────────────── */}
       <div className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}>
-        <div className="sidebar-header"><h3>Levicord</h3></div>
+        <div className="sidebar-header">
+          <div className="sidebar-brand">
+            <div className="brand-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
+                <circle cx="8" cy="12" r="1" fill="currentColor" />
+                <circle cx="12" cy="12" r="1" fill="currentColor" />
+                <circle cx="16" cy="12" r="1" fill="currentColor" />
+              </svg>
+            </div>
+            <span className="brand-name">Levicord</span>
+          </div>
+        </div>
 
         <div className="view-toggle">
           <button className={`view-toggle-btn ${viewMode === 'channels' ? 'active' : ''}`} onClick={() => setViewMode('channels')}>
@@ -370,10 +395,11 @@ export default function MainApp() {
                     tabIndex={0}
                     onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveDmUserId(user.id); } }}
                   >
-                    <img
-                      src={user.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${user.displayName}`}
+                    <Avatar
+                      src={user.avatarUrl}
+                      name={user.displayName}
+                      size={24}
                       className="dm-avatar-small"
-                      alt=""
                     />
                     <span>{user.displayName}</span>
                   </li>
@@ -385,8 +411,46 @@ export default function MainApp() {
         </div>
 
         <div className="user-panel">
-          <div className="user-info"><span className="status-indicator" /><span>Online</span></div>
-          <button className="icon-btn logout-btn" onClick={logout}>Sair</button>
+          <div
+            className="user-profile-summary"
+            onClick={() => setIsProfileModalOpen(true)}
+            title="Editar seu perfil (nome e foto)"
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setIsProfileModalOpen(true); }}
+          >
+            <div className="user-avatar-wrapper">
+              <Avatar
+                src={currentUser?.avatarUrl}
+                name={currentUser?.displayName}
+                size={32}
+                className="user-panel-avatar"
+              />
+              <span className="status-indicator" title="Online" />
+            </div>
+            <div className="user-details">
+              <span className="user-display-name">{currentUser?.displayName || 'Você'}</span>
+              <span className="user-status-text">Online</span>
+            </div>
+          </div>
+          <div className="user-panel-actions">
+            <button
+              className="icon-btn profile-settings-btn"
+              onClick={() => setIsProfileModalOpen(true)}
+              title="Editar perfil (nome e foto)"
+              aria-label="Editar perfil"
+            >
+              <Settings size={18} />
+            </button>
+            <button
+              className="icon-btn logout-btn"
+              onClick={logout}
+              title="Sair da conta"
+              aria-label="Sair da conta"
+            >
+              <LogOut size={18} />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -399,22 +463,23 @@ export default function MainApp() {
                 <Menu size={20} />
               </button>
               {viewMode === 'channels' ? (
-                <>
+                <div className="chat-header-title">
                   {isVoiceChannel
-                    ? <Volume2 size={24} className="channel-icon" aria-hidden="true" />
-                    : <Hash size={24} className="channel-icon" aria-hidden="true" />}
-                  <div>
-                    <h3>{activeChannel?.name}</h3>
-                    {activeChannel?.description && (
+                    ? <Volume2 size={22} className="channel-icon" aria-hidden="true" />
+                    : <Hash size={22} className="channel-icon" aria-hidden="true" />}
+                  <h3>{activeChannel?.name}</h3>
+                  {activeChannel?.description && (
+                    <>
+                      <div className="chat-header-divider" aria-hidden="true" />
                       <span className="channel-description">{activeChannel.description}</span>
-                    )}
-                  </div>
-                </>
+                    </>
+                  )}
+                </div>
               ) : (
-                <>
-                  <MessageCircle size={24} className="channel-icon" aria-hidden="true" />
-                  <div><h3>{activeDmUser?.displayName}</h3></div>
-                </>
+                <div className="chat-header-title">
+                  <MessageCircle size={22} className="channel-icon" aria-hidden="true" />
+                  <h3>{activeDmUser?.displayName}</h3>
+                </div>
               )}
               {viewMode === 'channels' && !isVoiceChannel && (
                 <div className="chat-search">
@@ -527,6 +592,14 @@ export default function MainApp() {
         title={editingChannel ? 'Editar Canal' : undefined}
         submitLabel={editingChannel ? 'Salvar alterações' : undefined}
         triggerRef={createChannelBtnRef}
+      />
+
+      <EditProfileModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+        currentUser={currentUser}
+        token={token}
+        onSaved={(updated) => updateCurrentUser(updated)}
       />
     </div>
   );

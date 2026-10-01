@@ -2,6 +2,7 @@ import type { RefObject } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Hash, Loader2 } from 'lucide-react';
 import { API_BASE } from '../lib/api';
+import { Avatar } from './Avatar';
 import type { Message, DirectMessage, User } from '../stores/useChatStore';
 
 interface MessageListProps {
@@ -101,10 +102,11 @@ export function MessageList({
             </>
           ) : (
             <>
-              <img
-                src={activeDmUser?.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${activeDmUser?.displayName}`}
+              <Avatar
+                src={activeDmUser?.avatarUrl}
+                name={activeDmUser?.displayName}
+                size={72}
                 className="empty-dm-avatar"
-                alt=""
               />
               <h4>Este é o começo da sua conversa com {activeDmUser?.displayName}.</h4>
             </>
@@ -125,9 +127,10 @@ export function MessageList({
           return (
             <div key={msg.id} className={`message-item ${isConsecutive ? 'consecutive' : ''}`}>
               {!isConsecutive && (
-                <img
-                  src={author.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${author.displayName}`}
-                  alt={`Avatar de ${author.displayName}`}
+                <Avatar
+                  src={author.avatarUrl}
+                  name={author.displayName}
+                  size={40}
                   className="avatar"
                 />
               )}

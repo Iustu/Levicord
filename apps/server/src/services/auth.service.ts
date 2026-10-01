@@ -19,21 +19,32 @@ export async function processGoogleUser(userInfo: GoogleUserInfo, prisma: Prisma
     throw new Error('Failed to get user email from Google');
   }
 
-  const user = await prisma.user.upsert({
+  const existingUser = await prisma.user.findUnique({
     where: { googleId: userInfo.id },
-    update: {
-      email: userInfo.email,
-      displayName: userInfo.name,
-      avatarUrl: userInfo.picture,
-      ...(configuredAdminEmails().has(userInfo.email.toLowerCase()) ? { role: 'ADMIN' as const } : {}),
-    },
-    create: {
+  });
+
+  if (existingUser) {
+    // Keep saved displayName and avatarUrl intact!
+    // Do NOT overwrite user's chosen name or avatar with Google data.
+    const user = await prisma.user.update({
+      where: { id: existingUser.id },
+      data: {
+        email: userInfo.email,
+        ...(configuredAdminEmails().has(userInfo.email.toLowerCase()) ? { role: 'ADMIN' as const } : {}),
+      },
+    });
+    return user;
+  }
+
+  // New user: do NOT fetch Google's picture! Remains as incógnita (null) until changed by user.
+  const user = await prisma.user.create({
+    data: {
       googleId: userInfo.id,
       email: userInfo.email,
-      displayName: userInfo.name,
-      avatarUrl: userInfo.picture,
+      displayName: userInfo.name || 'Usuário',
+      avatarUrl: null, // Incógnita by default
       role: configuredAdminEmails().has(userInfo.email.toLowerCase()) ? 'ADMIN' : 'USER',
-    }
+    },
   });
 
   return user;
@@ -55,10 +66,14 @@ export async function isAdmin(userId: string, prisma: PrismaClient = defaultPris
   return result;
 }
 
-export async function updateUserProfile(userId: string, displayName: string, prisma: PrismaClient = defaultPrisma) {
+export async function updateUserProfile(
+  userId: string,
+  data: { displayName?: string; avatarUrl?: string | null },
+  prisma: PrismaClient = defaultPrisma,
+) {
   return prisma.user.update({
     where: { id: userId },
-    data: { displayName },
-    select: { id: true, displayName: true, avatarUrl: true },
+    data,
+    select: { id: true, email: true, displayName: true, avatarUrl: true, role: true },
   });
 }

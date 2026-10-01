@@ -1,20 +1,22 @@
 .app-container {
   display: flex;
-  height: 100vh;
-  width: 100vw;
-  background-color: #36393f; /* Discord primary background */
-  color: #dcddde;
+  height: 100%;
+  width: 100%;
+  background-color: #313338; /* Discord primary background */
+  color: #dbdee1;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   overflow: hidden;
+  text-align: left;
 }
 
 /* Sidebar */
 .sidebar {
   width: 240px;
-  background-color: #2f3136;
+  background-color: #2b2d31;
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+  text-align: left;
 }
 
 .sidebar-header {
@@ -22,14 +24,39 @@
   padding: 0 16px;
   display: flex;
   align-items: center;
-  border-bottom: 1px solid #202225;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+  border-bottom: 1px solid #1f2023;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  background-color: #2b2d31;
+  text-align: left;
 }
 
-.sidebar-header h3 {
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  user-select: none;
+}
+
+.brand-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: linear-gradient(135deg, #5865f2 0%, #4752c4 100%);
+  border-radius: 8px;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(88, 101, 242, 0.35);
+  flex-shrink: 0;
+}
+
+.brand-name {
+  font-size: 16px;
   font-weight: 700;
-  color: white;
-  margin: 0;
+  letter-spacing: -0.2px;
+  color: #f2f3f5;
+  text-align: left;
+  line-height: 1;
 }
 
 .view-toggle {
@@ -106,11 +133,13 @@
   margin-bottom: 2px;
   border-radius: 4px;
   cursor: pointer;
-  color: #b5bac1;
+  color: #949ba4;
+  text-align: left;
+  transition: background-color 0.15s, color 0.15s;
 }
 
 .channel-item:focus-visible {
-  outline: 2px solid #7289da;
+  outline: 2px solid #5865f2;
   outline-offset: 1px;
 }
 
@@ -128,7 +157,7 @@
 
 .channel-item:hover {
   background-color: rgba(79,84,92,0.16);
-  color: #dcddde;
+  color: #dbdee1;
 }
 
 .channel-item.active {
@@ -138,6 +167,13 @@
 
 .channel-item span {
   flex: 1;
+  text-align: left;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .channel-edit-btn {
@@ -180,35 +216,101 @@
 /* User Panel */
 .user-panel {
   height: 52px;
-  background-color: #292b2f;
+  background-color: #232428;
   padding: 0 8px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+  border-top: 1px solid rgba(0, 0, 0, 0.2);
 }
 
-.user-info {
+.user-profile-summary {
   display: flex;
   align-items: center;
-  font-size: 14px;
-  font-weight: 600;
-  color: white;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+  transition: background-color 0.15s;
 }
 
-.status-indicator {
+.user-profile-summary:hover {
+  background-color: rgba(79, 84, 92, 0.24);
+}
+
+.user-avatar-wrapper {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.user-avatar-wrapper .status-indicator {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
   width: 10px;
   height: 10px;
-  background-color: #3ba55c;
+  background-color: #23a55a;
   border-radius: 50%;
-  margin-right: 8px;
+  border: 2px solid #232428;
+  margin: 0;
 }
 
+.user-details {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  text-align: left;
+}
+
+.user-display-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f2f3f5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+
+.user-status-text {
+  font-size: 11px;
+  color: #949ba4;
+  line-height: 1.2;
+}
+
+.user-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.profile-settings-btn,
 .logout-btn {
-  font-size: 12px;
+  padding: 6px;
+  border-radius: 4px;
+  color: #b5bac1;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.profile-settings-btn:hover {
+  color: #f2f3f5;
+  background-color: rgba(79, 84, 92, 0.24);
 }
 
 .logout-btn:hover {
-  color: #ed4245;
+  color: #f23f43;
+  background-color: rgba(242, 63, 67, 0.15);
 }
 
 /* Chat Area */
@@ -216,8 +318,9 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  background-color: #36393f;
+  background-color: #313338;
   min-width: 0;
+  text-align: left;
 }
 
 .chat-header {
@@ -225,19 +328,41 @@
   padding: 0 16px;
   display: flex;
   align-items: center;
-  border-bottom: 1px solid #202225;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+  border-bottom: 1px solid #1f2023;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  background-color: #313338;
+  text-align: left;
 }
 
-.chat-header h3 {
+.chat-header-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  text-align: left;
+}
+
+.chat-header-title h3 {
   margin: 0;
+  font-size: 16px;
   font-weight: 600;
-  color: white;
+  color: #f2f3f5;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.chat-header-divider {
+  width: 1px;
+  height: 16px;
+  background-color: #4e5058;
+  margin: 0 4px;
+  flex-shrink: 0;
 }
 
 .chat-header .channel-icon {
-  margin-right: 8px;
-  color: #b5bac1;
+  margin-right: 4px;
+  color: #80848e;
+  flex-shrink: 0;
 }
 
 .messages-list {
@@ -278,6 +403,7 @@
 
 .message-content {
   flex: 1;
+  text-align: left;
 }
 
 .message-item.consecutive .message-content {
@@ -288,18 +414,21 @@
   display: flex;
   align-items: baseline;
   margin-bottom: 4px;
+  text-align: left;
 }
 
 .author-name {
-  font-weight: 500;
-  color: white;
+  font-weight: 600;
+  color: #f2f3f5;
   margin-right: 8px;
-  font-size: 16px;
+  font-size: 15px;
+  text-align: left;
 }
 
 .timestamp {
   font-size: 12px;
-  color: #72767d;
+  color: #949ba4;
+  text-align: left;
 }
 
 .text {
@@ -308,6 +437,8 @@
   line-height: 1.375rem;
   white-space: pre-wrap;
   word-wrap: break-word;
+  color: #dbdee1;
+  text-align: left;
 }
 
 /* Input Area */
@@ -449,10 +580,13 @@
 }
 
 .channel-description {
-  font-size: 12px;
-  color: #b5bac1;
-  display: block;
-  margin-top: 2px;
+  font-size: 13px;
+  color: #949ba4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 400;
+  text-align: left;
 }
 
 /* Attach button */

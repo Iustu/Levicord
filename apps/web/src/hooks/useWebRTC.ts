@@ -10,7 +10,7 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
   const localStreamRef = useRef<MediaStream | null>(null);
 
   const [isMuted, setIsMuted] = useState(false);
-  const [isVideoOff, setIsVideoOff] = useState(false);
+  const [isVideoOff, setIsVideoOff] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -18,14 +18,28 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
 
     const startWebRTC = async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+        let stream: MediaStream | null = null;
+
+        // Em canal de voz, inicia com áudio (vídeo desligado por padrão)
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+          setIsMuted(false);
+          setIsVideoOff(true);
+        } catch (audioErr) {
+          console.warn('Microfone não detectado ou permissão negada. Entrando em modo ouvinte.', audioErr);
+          // Modo ouvinte (listen-only): permite ouvir mesmo sem microfone ou câmera
+          stream = new MediaStream();
+          setIsMuted(true);
+          setIsVideoOff(true);
+        }
+
         setLocalStream(stream);
         localStreamRef.current = stream;
         setError(null);
         socket.emit('join_voice', channelId);
       } catch (err) {
-        console.error('Failed to get local stream.', err);
-        setError('Permissão de câmera/microfone negada ou dispositivo não encontrado.');
+        console.error('Falha ao inicializar WebRTC:', err);
+        setError('Não foi possível conectar ao canal de voz.');
       }
     };
 
@@ -51,10 +65,20 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
         iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
       });
 
-      if (localStreamRef.current) {
+      if (localStreamRef.current && localStreamRef.current.getTracks().length > 0) {
         localStreamRef.current.getTracks().forEach(track => {
           peer.addTrack(track, localStreamRef.current!);
         });
+      }
+
+      // Garante transceivers para receber áudio e vídeo mesmo em modo ouvinte (sem microfone/câmera locais)
+      const existingAudio = peer.getTransceivers().find(t => t.receiver.track.kind === 'audio');
+      if (!existingAudio) {
+        peer.addTransceiver('audio', { direction: 'recvonly' });
+      }
+      const existingVideo = peer.getTransceivers().find(t => t.receiver.track.kind === 'video');
+      if (!existingVideo) {
+        peer.addTransceiver('video', { direction: 'recvonly' });
       }
 
       peer.onicecandidate = (event) => {
@@ -134,17 +158,51 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
     };
   }, [socket, channelId, enabled]);
 
-  const toggleMute = () => {
-    if (localStreamRef.current) {
-      localStreamRef.current.getAudioTracks().forEach(t => t.enabled = !t.enabled);
-      setIsMuted(!localStreamRef.current.getAudioTracks()[0]?.enabled);
+  const toggleMute = async () => {
+    if (!localStreamRef.current) return;
+    const audioTrack = localStreamRef.current.getAudioTracks()[0];
+    if (audioTrack) {
+      audioTrack.enabled = !audioTrack.enabled;
+      setIsMuted(!audioTrack.enabled);
+    } else {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const newTrack = stream.getAudioTracks()[0];
+        if (newTrack) {
+          localStreamRef.current.addTrack(newTrack);
+          Object.values(peersRef.current).forEach(peer => {
+            peer.addTrack(newTrack, localStreamRef.current!);
+          });
+          setLocalStream(new MediaStream(localStreamRef.current.getTracks()));
+          setIsMuted(false);
+        }
+      } catch (err) {
+        console.warn('Microfone não encontrado ou permissão negada:', err);
+      }
     }
   };
 
-  const toggleVideo = () => {
-    if (localStreamRef.current) {
-      localStreamRef.current.getVideoTracks().forEach(t => t.enabled = !t.enabled);
-      setIsVideoOff(!localStreamRef.current.getVideoTracks()[0]?.enabled);
+  const toggleVideo = async () => {
+    if (!localStreamRef.current) return;
+    const videoTrack = localStreamRef.current.getVideoTracks()[0];
+    if (videoTrack) {
+      videoTrack.enabled = !videoTrack.enabled;
+      setIsVideoOff(!videoTrack.enabled);
+    } else {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        const newTrack = stream.getVideoTracks()[0];
+        if (newTrack) {
+          localStreamRef.current.addTrack(newTrack);
+          Object.values(peersRef.current).forEach(peer => {
+            peer.addTrack(newTrack, localStreamRef.current!);
+          });
+          setLocalStream(new MediaStream(localStreamRef.current.getTracks()));
+          setIsVideoOff(false);
+        }
+      } catch (err) {
+        console.warn('Câmera não encontrada ou permissão negada:', err);
+      }
     }
   };
 

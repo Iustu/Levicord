@@ -99,7 +99,9 @@ export function ChatInput({ placeholder, token, onSend, onTypingStart, onTypingS
 
     xhr.open('POST', `${API_BASE}/api/upload`);
     xhr.withCredentials = true;
-    if (token !== '__cookie__') xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    if (token && token !== '__cookie__' && token !== 'authenticated') {
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    }
     xhr.send(formData);
   };
 

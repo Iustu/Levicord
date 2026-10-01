@@ -9,21 +9,29 @@ export function useAuth() {
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const setCurrentUserId = useChatStore((state) => state.setCurrentUserId);
+  const setCurrentUser = useChatStore((state) => state.setCurrentUser);
 
   useEffect(() => {
     let cancelled = false;
     fetch(`${API_BASE}/api/auth/session`, { credentials: 'include' })
       .then((response) => {
         if (!response.ok) throw new Error('Unauthenticated');
-        return response.json() as Promise<{ authenticated: boolean; user?: { sub: string } }>;
+        return response.json() as Promise<{
+          authenticated: boolean;
+          user?: { id: string; sub: string; email?: string; displayName: string; avatarUrl?: string | null };
+        }>;
       })
       .then((data) => {
-        if (!cancelled && data.authenticated) {
+        if (!cancelled && data.authenticated && data.user) {
           setToken('authenticated');
-          // Populate the store with the authenticated user's ID so
-          // other hooks (e.g. useSocketListeners) can resolve "who am I?"
-          // without fragile JWT decode.
-          if (data.user?.sub) setCurrentUserId(data.user.sub);
+          const uid = data.user.sub || data.user.id;
+          setCurrentUserId(uid);
+          setCurrentUser({
+            id: uid,
+            email: data.user.email,
+            displayName: data.user.displayName,
+            avatarUrl: data.user.avatarUrl,
+          });
         }
       })
       .catch(() => {
