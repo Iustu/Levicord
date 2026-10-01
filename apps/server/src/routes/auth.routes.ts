@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import sanitizeHtml from 'sanitize-html';
 import { processGoogleUser, updateUserProfile } from '../services/auth.service';
+import { requireAuth, getAuthUserId } from '../lib/auth';
 import { prisma } from '../prisma';
 import { redis } from '../lib/redis';
 
@@ -15,15 +16,9 @@ const googleUserInfoSchema = z.object({
 
 export default async function authRoutes(fastify: FastifyInstance) {
   fastify.get('/session', {
-    onRequest: async (request, reply) => {
-      try {
-        await request.jwtVerify();
-      } catch (error) {
-        return reply.code(401).send({ message: 'Unauthenticated' });
-      }
-    },
+    preHandler: requireAuth,
   }, async (request) => {
-    const userId = (request.user as { sub: string }).sub;
+    const userId = getAuthUserId(request);
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, email: true, displayName: true, avatarUrl: true, role: true },
@@ -35,15 +30,9 @@ export default async function authRoutes(fastify: FastifyInstance) {
   });
 
   fastify.get('/me', {
-    onRequest: async (request, reply) => {
-      try {
-        await request.jwtVerify();
-      } catch (error) {
-        return reply.code(401).send({ message: 'Unauthenticated' });
-      }
-    },
+    preHandler: requireAuth,
   }, async (request, reply) => {
-    const userId = (request.user as { sub: string }).sub;
+    const userId = getAuthUserId(request);
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, email: true, displayName: true, avatarUrl: true, role: true },
@@ -129,15 +118,9 @@ export default async function authRoutes(fastify: FastifyInstance) {
         },
       },
     },
-    onRequest: async (request, reply) => {
-      try {
-        await request.jwtVerify();
-      } catch (err) {
-        return reply.code(401).send({ message: 'Unauthenticated' });
-      }
-    },
+    preHandler: requireAuth,
   }, async (request, reply) => {
-    const userId = (request.user as { sub: string }).sub;
+    const userId = getAuthUserId(request);
     const { displayName, avatarUrl } = request.body;
 
     const dataToUpdate: { displayName?: string; avatarUrl?: string | null } = {};

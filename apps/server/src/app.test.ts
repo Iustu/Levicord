@@ -31,6 +31,26 @@ describe('Fastify Server', () => {
     expect(response.json()).toEqual({ status: 'ok' });
   });
 
+  it('should serve OpenAPI specification and Swagger UI docs', async () => {
+    const specResponse = await app.inject({ method: 'GET', url: '/api/openapi.json' });
+    expect(specResponse.statusCode).toBe(200);
+    const spec = specResponse.json();
+    expect(spec.openapi).toBe('3.0.3');
+    expect(spec.info.title).toBe('Levicord API');
+
+    const docsResponse = await app.inject({ method: 'GET', url: '/api/docs' });
+    expect(docsResponse.statusCode).toBe(200);
+    expect(docsResponse.headers['content-type']).toContain('text/html');
+  });
+
+  it('should support both versioned (/api/v1) and legacy (/api) endpoints', async () => {
+    const v1Response = await app.inject({ method: 'GET', url: '/api/v1/channels' });
+    const legacyResponse = await app.inject({ method: 'GET', url: '/api/channels' });
+
+    expect(v1Response.statusCode).toBe(401);
+    expect(legacyResponse.statusCode).toBe(401);
+  });
+
   it('should reject unauthenticated session and channel requests', async () => {
     const sessionResponse = await app.inject({ method: 'GET', url: '/api/auth/session' });
     const channelsResponse = await app.inject({ method: 'GET', url: '/api/channels' });

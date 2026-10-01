@@ -106,32 +106,28 @@ describe('ChatInput', () => {
 
   // ── File upload / Attachment preview ──────────────────────────────────────
   it('shows the uploading state when a file is selected', async () => {
-    const { container } = renderChatInput();
-    const fileInput = container.querySelector('#file-upload-input') as HTMLInputElement;
-    const file = new File(['hello'], 'test.png', { type: 'image/png' });
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockImplementation(() => new Promise(() => {})); // Never resolves to keep in uploading state
 
-    fireEvent.change(fileInput, { target: { files: [file] } });
+    try {
+      const { container } = renderChatInput();
+      const fileInput = container.querySelector('#file-upload-input') as HTMLInputElement;
+      const file = new File(['hello'], 'test.png', { type: 'image/png' });
 
-    await waitFor(() => {
-      const attachBtn = screen.getByRole('button', { name: /anexar arquivo/i });
-      expect(attachBtn).toBeDisabled();
-    });
+      fireEvent.change(fileInput, { target: { files: [file] } });
+
+      await waitFor(() => {
+        const attachBtn = screen.getByRole('button', { name: /anexar arquivo/i });
+        expect(attachBtn).toBeDisabled();
+      });
+    } finally {
+      globalThis.fetch = origFetch;
+    }
   });
 
   it('shows error and allows dismissing when upload fails', async () => {
-    const OrigXHR = globalThis.XMLHttpRequest;
-    class FakeXHR extends OrigXHR {
-      open() { /* no-op */ }
-      send() {
-        setTimeout(() => {
-          this.dispatchEvent(new Event('error'));
-        }, 0);
-      }
-      setRequestHeader() { /* no-op */ }
-      get withCredentials() { return false; }
-      set withCredentials(_: boolean) { /* no-op */ }
-    }
-    globalThis.XMLHttpRequest = FakeXHR as never;
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
 
     try {
       const { container } = renderChatInput();
@@ -146,7 +142,7 @@ describe('ChatInput', () => {
       fireEvent.click(closeBtn);
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     } finally {
-      globalThis.XMLHttpRequest = OrigXHR;
+      globalThis.fetch = origFetch;
     }
   });
 

@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Hash, Plus, Pencil, MessageCircle, Volume2, Search, X, Menu, Settings, LogOut } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useChatStore } from '../stores/useChatStore';
 import { useSocket } from '../hooks/useSocket';
@@ -7,9 +6,12 @@ import { useTypingIndicator } from '../hooks/useTypingIndicator';
 import { useChannelMessages } from '../hooks/useChannelMessages';
 import { useDmMessages } from '../hooks/useDmMessages';
 import { apiFetch } from '../lib/api';
+import { Sidebar } from '../components/Sidebar';
+import { ChatHeader } from '../components/ChatHeader';
+import { SearchResultsOverlay } from '../components/SearchResultsOverlay';
 import { CreateChannelModal } from '../components/CreateChannelModal';
 import { EditProfileModal } from '../components/EditProfileModal';
-import { Avatar } from '../components/Avatar';
+import { LogoutModal } from '../components/LogoutModal';
 import { MessageList } from '../components/MessageList';
 import { ChatInput } from '../components/ChatInput';
 import { VoiceScreen } from '../components/VoiceScreen';
@@ -18,32 +20,34 @@ import type { UploadedAttachment } from '../components/ChatInput';
 import './MainApp.css';
 
 /**
- * MainApp — top-level layout and navigation orchestrator.
+ * MainApp — clean layout and navigation orchestrator.
  *
- * Responsibilities of THIS file (and nothing else):
- *   1. Layout skeleton (sidebar + chat area)
- *   2. Navigation state (active channel, active DM, view mode, voice call)
- *   3. Channel CRUD
- *   4. Search
+ * Responsibilities:
+ *   1. Layout coordination (sidebar + chat area)
+ *   2. Navigation state (active channel/DM, voice session)
+ *   3. Channel CRUD and search actions
  *
- * Data fetching is fully delegated to hooks:
- *   - useChannelMessages → channel messages + pagination
- *   - useDmMessages      → DM messages
- *   - useTypingIndicator → typing state
- *
- * Route protection is handled by ProtectedRoute in App.tsx.
- * (ESM — SRP, Low Coupling)
+ * All sub-interfaces are isolated into cohesive components:
+ *   - Sidebar, ChatHeader, SearchResultsOverlay, LogoutModal
+ *   (ESM Cap. 5 — High Cohesion, Low Coupling)
  */
 export default function MainApp() {
   const { token, logout } = useAuth();
 
-  const {
-    viewMode, setViewMode,
-    channels, activeChannelId, setChannels, setActiveChannelId,
-    users, setUsers,
-    activeDmUserId, setActiveDmUserId,
-    currentUser, setCurrentUser, updateCurrentUser,
-  } = useChatStore();
+  // ── Fine-grained store subscriptions (prevents full-page re-renders) ────────
+  const viewMode = useChatStore((s) => s.viewMode);
+  const setViewMode = useChatStore((s) => s.setViewMode);
+  const channels = useChatStore((s) => s.channels);
+  const activeChannelId = useChatStore((s) => s.activeChannelId);
+  const setChannels = useChatStore((s) => s.setChannels);
+  const setActiveChannelId = useChatStore((s) => s.setActiveChannelId);
+  const users = useChatStore((s) => s.users);
+  const setUsers = useChatStore((s) => s.setUsers);
+  const activeDmUserId = useChatStore((s) => s.activeDmUserId);
+  const setActiveDmUserId = useChatStore((s) => s.setActiveDmUserId);
+  const currentUser = useChatStore((s) => s.currentUser);
+  const setCurrentUser = useChatStore((s) => s.setCurrentUser);
+  const updateCurrentUser = useChatStore((s) => s.updateCurrentUser);
 
   const { socket, joinChannel, sendMessage, sendDm, sendTypingStart, sendTypingStop } = useSocket();
 
@@ -65,6 +69,7 @@ export default function MainApp() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
   const [activeVoiceChannelId, setActiveVoiceChannelId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [channelsError, setChannelsError] = useState<string | null>(null);
@@ -80,7 +85,10 @@ export default function MainApp() {
   const handleSearchChange = useCallback((q: string) => {
     setSearchQuery(q);
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-    if (!q.trim() || q.trim().length < 2) { setSearchResults(null); return; }
+    if (!q.trim() || q.trim().length < 2) {
+      setSearchResults(null);
+      return;
+    }
     searchDebounceRef.current = setTimeout(async () => {
       if (!token || !activeChannelId) return;
       setIsSearching(true);
@@ -90,12 +98,18 @@ export default function MainApp() {
           token,
         );
         setSearchResults(results);
-      } catch { setSearchResults([]); }
-      finally { setIsSearching(false); }
+      } catch {
+        setSearchResults([]);
+      } finally {
+        setIsSearching(false);
+      }
     }, 350);
   }, [token, activeChannelId]);
 
-  const clearSearch = () => { setSearchQuery(''); setSearchResults(null); };
+  const clearSearch = () => {
+    setSearchQuery('');
+    setSearchResults(null);
+  };
 
   // ── Bootstrap fetches ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -120,9 +134,9 @@ export default function MainApp() {
   useEffect(() => {
     if (!token || viewMode !== 'dms') return;
     apiFetch<{ users: User[]; nextCursor: string | null }>('/api/users', token)
-      .then(({ users }) => setUsers(users))
+      .then(({ users: fetchedUsers }) => setUsers(fetchedUsers))
       .catch(console.error);
-  }, [token, viewMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [token, viewMode, setUsers]);
 
   // ── Derived values ────────────────────────────────────────────────────────
   const activeChannel = channels.find((c) => c.id === activeChannelId);
@@ -183,215 +197,50 @@ export default function MainApp() {
 
   return (
     <div className="app-container">
-      {/* ── Sidebar overlay (mobile) ──────────────────────────────────── */}
-      <div
-        className={`sidebar-overlay ${sidebarOpen ? 'visible' : ''}`}
-        onClick={() => setSidebarOpen(false)}
-        aria-hidden="true"
+      {/* ── Sidebar Component ─────────────────────────────────────────── */}
+      <Sidebar
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        channels={channels}
+        activeChannelId={activeChannelId}
+        onSelectChannel={handleChannelClick}
+        onOpenCreateChannel={() => setIsModalOpen(true)}
+        onEditChannel={setEditingChannel}
+        createChannelBtnRef={createChannelBtnRef}
+        channelsError={channelsError}
+        onRetryChannels={() => setChannelsRetryKey((k) => k + 1)}
+        users={users}
+        activeDmUserId={activeDmUserId}
+        onSelectDmUser={setActiveDmUserId}
+        currentUser={currentUser}
+        onOpenProfile={() => setIsProfileModalOpen(true)}
+        onOpenLogout={() => setIsLogoutModalOpen(true)}
       />
 
-      {/* ── Sidebar ────────────────────────────────────────────────────── */}
-      <div className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}>
-        <div className="sidebar-header">
-          <div className="sidebar-brand">
-            <div className="brand-icon">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
-                <circle cx="8" cy="12" r="1" fill="currentColor" />
-                <circle cx="12" cy="12" r="1" fill="currentColor" />
-                <circle cx="16" cy="12" r="1" fill="currentColor" />
-              </svg>
-            </div>
-            <span className="brand-name">Levicord</span>
-          </div>
-        </div>
-
-        <div className="view-toggle">
-          <button className={`view-toggle-btn ${viewMode === 'channels' ? 'active' : ''}`} onClick={() => setViewMode('channels')}>
-            Canais
-          </button>
-          <button className={`view-toggle-btn ${viewMode === 'dms' ? 'active' : ''}`} onClick={() => setViewMode('dms')}>
-            Mensagens Diretas
-          </button>
-        </div>
-
-        <div className="channels-section">
-          {viewMode === 'channels' ? (
-            <>
-              <div className="channels-header">
-                <span>CANAIS</span>
-                <button ref={createChannelBtnRef} className="icon-btn" onClick={() => setIsModalOpen(true)} aria-label="Criar novo canal" title="Criar Canal">
-                  <Plus size={16} />
-                </button>
-              </div>
-              {channelsError && (
-                <div className="sidebar-error" role="alert">
-                  <span>{channelsError}</span>
-                  <button type="button" onClick={() => setChannelsRetryKey((k) => k + 1)}>Tentar novamente</button>
-                </div>
-              )}
-              <ul className="channel-list" role="listbox" aria-label="Canais">
-                {channels.map((channel) => (
-                  <li
-                    key={channel.id}
-                    className={`channel-item ${activeChannelId === channel.id ? 'active' : ''}`}
-                    onClick={() => handleChannelClick(channel)}
-                    role="option"
-                    aria-selected={activeChannelId === channel.id}
-                    tabIndex={0}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleChannelClick(channel); } }}
-                  >
-                    {channel.type === 'VOICE'
-                      ? <Volume2 size={20} className="channel-icon" aria-hidden="true" />
-                      : <Hash size={20} className="channel-icon" aria-hidden="true" />}
-                    <span>{channel.name}</span>
-                    <button
-                      className="channel-edit-btn"
-                      onClick={(e) => { e.stopPropagation(); setEditingChannel(channel); }}
-                      title="Editar canal"
-                      aria-label={`Editar canal ${channel.name}`}
-                    >
-                      <Pencil size={14} />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </>
-          ) : (
-            <>
-              <div className="channels-header"><span>MENSAGENS DIRETAS</span></div>
-              <ul className="channel-list" role="listbox" aria-label="Mensagens Diretas">
-                {users.map((user) => (
-                  <li
-                    key={user.id}
-                    className={`channel-item ${activeDmUserId === user.id ? 'active' : ''}`}
-                    onClick={() => setActiveDmUserId(user.id)}
-                    role="option"
-                    aria-selected={activeDmUserId === user.id}
-                    tabIndex={0}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveDmUserId(user.id); } }}
-                  >
-                    <Avatar src={user.avatarUrl} name={user.displayName} size={24} className="dm-avatar-small" />
-                    <span>{user.displayName}</span>
-                  </li>
-                ))}
-                {users.length === 0 && (
-                  <div className="empty-users">
-                    <p>Ainda não há outros utilizadores na plataforma.</p>
-                    <p style={{ marginTop: '4px', fontSize: '12px', color: 'var(--text-muted)' }}>
-                      Convide alguém para começar uma conversa.
-                    </p>
-                  </div>
-                )}
-              </ul>
-            </>
-          )}
-        </div>
-
-        <div className="user-panel">
-          <div
-            className="user-profile-summary"
-            onClick={() => setIsProfileModalOpen(true)}
-            title="Editar seu perfil (nome e foto)"
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setIsProfileModalOpen(true); }}
-          >
-            <div className="user-avatar-wrapper">
-              <Avatar src={currentUser?.avatarUrl} name={currentUser?.displayName} size={32} className="user-panel-avatar" />
-              <span className="status-indicator" title="Online" />
-            </div>
-            <div className="user-details">
-              <span className="user-display-name">{currentUser?.displayName || 'Você'}</span>
-              <span className="user-status-text">Online</span>
-            </div>
-          </div>
-          <div className="user-panel-actions">
-            <button className="icon-btn profile-settings-btn" onClick={() => setIsProfileModalOpen(true)} title="Editar perfil" aria-label="Editar perfil">
-              <Settings size={18} />
-            </button>
-            <button className="icon-btn logout-btn" onClick={logout} title="Sair da conta" aria-label="Sair da conta">
-              <LogOut size={18} />
-            </button>
-          </div>
-        </div>
-      </div>
-
       {/* ── Chat Area ──────────────────────────────────────────────────── */}
-      <div className="chat-area" id="main-content">
+      <main className="chat-area" id="main-content">
         {hasActiveConversation ? (
           <>
-            <div className="chat-header">
-              <button className="sidebar-toggle" onClick={() => setSidebarOpen((o) => !o)} aria-label="Abrir menu">
-                <Menu size={20} />
-              </button>
-              {viewMode === 'channels' ? (
-                <div className="chat-header-title">
-                  {isVoiceChannel
-                    ? <Volume2 size={22} className="channel-icon" aria-hidden="true" />
-                    : <Hash size={22} className="channel-icon" aria-hidden="true" />}
-                  <h3>{activeChannel?.name}</h3>
-                  {activeChannel?.description && (
-                    <>
-                      <div className="chat-header-divider" aria-hidden="true" />
-                      <span className="channel-description">{activeChannel.description}</span>
-                    </>
-                  )}
-                </div>
-              ) : (
-                <div className="chat-header-title">
-                  <MessageCircle size={22} className="channel-icon" aria-hidden="true" />
-                  <h3>{activeDmUser?.displayName}</h3>
-                </div>
-              )}
-              {viewMode === 'channels' && !isVoiceChannel && (
-                <div className="chat-search">
-                  <Search size={14} className="chat-search-icon" aria-hidden="true" />
-                  <input
-                    className="chat-search-input"
-                    type="search"
-                    placeholder="Buscar mensagens..."
-                    aria-label="Buscar mensagens no canal"
-                    value={searchQuery}
-                    onChange={(e) => handleSearchChange(e.target.value)}
-                  />
-                  {searchQuery && (
-                    <button className="chat-search-clear" onClick={clearSearch} aria-label="Limpar busca">
-                      <X size={12} />
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
+            <ChatHeader
+              viewMode={viewMode}
+              isVoiceChannel={Boolean(isVoiceChannel)}
+              channelName={activeChannel?.name}
+              channelDescription={activeChannel?.description}
+              dmDisplayName={activeDmUser?.displayName}
+              onToggleSidebar={() => setSidebarOpen((o) => !o)}
+              searchQuery={searchQuery}
+              onSearchChange={handleSearchChange}
+              onClearSearch={clearSearch}
+            />
 
-            {searchResults !== null && (
-              <div className="search-results" role="region" aria-label="Resultados da busca">
-                <div className="search-results-header">
-                  {isSearching ? 'Buscando...' : `${searchResults.length} resultado${searchResults.length !== 1 ? 's' : ''} para "${searchQuery}"`}
-                  <button onClick={clearSearch} className="search-results-close">Fechar</button>
-                </div>
-                {!isSearching && searchResults.length === 0 && (
-                  <p className="search-results-empty">Nenhuma mensagem encontrada.</p>
-                )}
-                <ul className="search-results-list">
-                  {searchResults.map((msg) => (
-                    <li key={msg.id} className="search-result-item">
-                      <img
-                        src={msg.author.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${msg.author.displayName}`}
-                        className="avatar"
-                        alt={`Avatar de ${msg.author.displayName}`}
-                        loading="lazy"
-                      />
-                      <div>
-                        <span className="author-name">{msg.author.displayName}</span>
-                        <span className="timestamp">{new Date(msg.createdAt).toLocaleString('pt-BR')}</span>
-                        <p className="text">{msg.content}</p>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
+            <SearchResultsOverlay
+              searchResults={searchResults}
+              searchQuery={searchQuery}
+              isSearching={isSearching}
+              onClose={clearSearch}
+            />
 
             {isVoiceChannel ? (
               <VoiceScreen
@@ -418,15 +267,12 @@ export default function MainApp() {
                   messagesListRef={messagesListRef}
                   typingUserNames={typingUserNames}
                 />
-                {token && (
-                  <ChatInput
-                    placeholder={chatPlaceholder}
-                    token={token}
-                    onSend={handleSend}
-                    onTypingStart={viewMode === 'channels' && activeChannelId ? () => sendTypingStart(activeChannelId) : undefined}
-                    onTypingStop={viewMode === 'channels' && activeChannelId ? () => sendTypingStop(activeChannelId) : undefined}
-                  />
-                )}
+                <ChatInput
+                  placeholder={chatPlaceholder}
+                  onSend={handleSend}
+                  onTypingStart={viewMode === 'channels' && activeChannelId ? () => sendTypingStart(activeChannelId) : undefined}
+                  onTypingStop={viewMode === 'channels' && activeChannelId ? () => sendTypingStop(activeChannelId) : undefined}
+                />
               </>
             )}
           </>
@@ -439,7 +285,7 @@ export default function MainApp() {
             </p>
           </div>
         )}
-      </div>
+      </main>
 
       {/* ── Modals ──────────────────────────────────────────────────────── */}
       <CreateChannelModal
@@ -460,6 +306,12 @@ export default function MainApp() {
         currentUser={currentUser}
         token={token}
         onSaved={(updated) => updateCurrentUser(updated)}
+      />
+
+      <LogoutModal
+        isOpen={isLogoutModalOpen}
+        onClose={() => setIsLogoutModalOpen(false)}
+        onConfirm={logout}
       />
     </div>
   );

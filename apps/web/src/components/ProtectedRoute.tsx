@@ -1,5 +1,5 @@
 import { Navigate } from 'react-router-dom';
-import { useAuth } from '../hooks/useAuth';
+import { useSession } from '../hooks/useSession';
 
 /**
  * Wraps a route so only authenticated users can access it.
@@ -12,7 +12,7 @@ import { useAuth } from '../hooks/useAuth';
  * should never reach internal pages. Failing silently causes confusion.)
  */
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { token, isLoading } = useAuth();
+  const { token, isLoading } = useSession();
 
   // While auth state is resolving, render nothing to avoid a flash of the
   // protected page before the redirect fires.

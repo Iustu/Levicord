@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { X, Trash2, Camera, Loader2 } from 'lucide-react';
 import { Avatar } from './Avatar';
 import { apiFetch, API_BASE } from '../lib/api';
-import type { User } from '../stores/useChatStore';
+import type { User } from '@discord-clone/shared';
 import './EditProfileModal.css';
 
 interface EditProfileModalProps {

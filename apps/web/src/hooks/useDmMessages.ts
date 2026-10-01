@@ -27,7 +27,8 @@ interface UseDmMessagesReturn {
  * (ESM Cap.5 — hooks should own a single cohesive concern)
  */
 export function useDmMessages({ token, dmUserId }: UseDmMessagesOptions): UseDmMessagesReturn {
-  const { dms, setDms } = useChatStore();
+  const messages = useChatStore((state) => (dmUserId ? state.dms[dmUserId] ?? [] : []));
+  const setDms = useChatStore((state) => state.setDms);
 
   const [isLoading, setIsLoading] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -35,8 +36,6 @@ export function useDmMessages({ token, dmUserId }: UseDmMessagesOptions): UseDmM
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const messagesListRef = useRef<HTMLDivElement | null>(null);
-
-  const messages = dmUserId ? (dms[dmUserId] ?? []) : [];
 
   // ── Fetch ─────────────────────────────────────────────────────────────────
   useEffect(() => {

@@ -7,19 +7,22 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 let isRefreshing = false;
 let refreshPromise: Promise<boolean> | null = null;
+let refreshAbortController: AbortController | null = null;
+let refreshSubscribers = 0;
 
 export async function apiFetch<T>(
   path: string,
-  _token: string | null,
+  _token: string | null = null,
   options: RequestInit = {}
 ): Promise<T> {
   const controller = options.signal ? undefined : new AbortController();
   const timeout = controller ? window.setTimeout(() => controller.abort(), 15000) : undefined;
-  
+  const activeSignal = options.signal || controller?.signal;
+
   const executeRequest = async (): Promise<Response> => {
     return fetch(`${API_BASE}${path}`, {
       ...options,
-      signal: options.signal || controller?.signal,
+      signal: activeSignal,
       credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
@@ -32,19 +35,55 @@ export async function apiFetch<T>(
     let res = await executeRequest();
 
     if (res.status === 401 && path !== '/api/auth/refresh') {
+      if (activeSignal?.aborted) {
+        throw new DOMException('Aborted', 'AbortError');
+      }
+
       if (!isRefreshing) {
         isRefreshing = true;
+        refreshAbortController = new AbortController();
+        refreshSubscribers = 0;
+
         refreshPromise = fetch(`${API_BASE}/api/auth/refresh`, {
           method: 'POST',
           credentials: 'include',
-        }).then(r => r.ok).catch(() => false).finally(() => {
-          isRefreshing = false;
-        });
+          signal: refreshAbortController.signal,
+        })
+          .then((r) => r.ok)
+          .catch((err) => {
+            if (err?.name === 'AbortError') return false;
+            return false;
+          })
+          .finally(() => {
+            isRefreshing = false;
+            refreshPromise = null;
+            refreshAbortController = null;
+            refreshSubscribers = 0;
+          });
       }
-      
-      const refreshed = await refreshPromise;
-      if (refreshed) {
-        res = await executeRequest();
+
+      // Track subscriber to cancel in-flight refresh if all waiting callers abort
+      refreshSubscribers++;
+      const onAbort = () => {
+        refreshSubscribers--;
+        if (refreshSubscribers <= 0 && refreshAbortController) {
+          refreshAbortController.abort();
+        }
+      };
+
+      if (activeSignal) {
+        activeSignal.addEventListener('abort', onAbort, { once: true });
+      }
+
+      try {
+        const refreshed = await refreshPromise;
+        if (refreshed && !activeSignal?.aborted) {
+          res = await executeRequest();
+        }
+      } finally {
+        if (activeSignal) {
+          activeSignal.removeEventListener('abort', onAbort);
+        }
       }
     }
 

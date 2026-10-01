@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import type { Message } from '@discord-clone/shared';
 import { apiFetch } from '../lib/api';
+import { useChatStore } from '../stores/useChatStore';
 
 interface UseChannelMessagesOptions {
   token: string | null;
@@ -25,8 +26,8 @@ interface UseChannelMessagesReturn {
 /**
  * Fetches and manages channel message state (initial load + pagination).
  *
- * Extracted from MainApp to enforce SRP and enable independent testing.
- * (ESM Cap.5 — hooks should own a single cohesive concern)
+ * Synchronized with global Zustand store for real-time WebSocket updates.
+ * (ESM Cap.5 — single source of truth for chat domain)
  *
  * Invariants:
  * - Auto-scrolls to the bottom on new messages unless the user has scrolled up.
@@ -38,7 +39,10 @@ export function useChannelMessages({
   channelId,
   onJoinChannel,
 }: UseChannelMessagesOptions): UseChannelMessagesReturn {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const messages = useChatStore((state) => state.messages);
+  const setStoreMessages = useChatStore((state) => state.setMessages);
+  const prependStoreMessages = useChatStore((state) => state.prependMessages);
+
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -53,10 +57,14 @@ export function useChannelMessages({
 
   // ── Initial load ──────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!token || !channelId) return;
+    if (!token || !channelId) {
+      setStoreMessages([]);
+      return;
+    }
 
     let cancelled = false;
     onJoinChannel(channelId);
+    setStoreMessages([]);
     setIsLoading(true);
     setFetchError(null);
     setNextCursor(null);
@@ -68,7 +76,7 @@ export function useChannelMessages({
     )
       .then((data) => {
         if (cancelled) return;
-        setMessages(data.messages);
+        setStoreMessages(data.messages);
         setNextCursor(data.nextCursor);
       })
       .catch(() => {
@@ -83,7 +91,7 @@ export function useChannelMessages({
       olderAbortControllerRef.current?.abort();
       olderAbortControllerRef.current = null;
     };
-  }, [token, channelId, retryKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [token, channelId, retryKey, setStoreMessages]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Auto-scroll ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -112,11 +120,7 @@ export function useChannelMessages({
       );
       if (controller.signal.aborted || requested !== channelId) return;
       preserveScrollRef.current = true;
-      setMessages((prev) => {
-        const existingIds = new Set(prev.map((m) => m.id));
-        const fresh = data.messages.filter((m) => !existingIds.has(m.id));
-        return [...fresh, ...prev];
-      });
+      prependStoreMessages(data.messages);
       setNextCursor(data.nextCursor);
       requestAnimationFrame(() => {
         if (list) list.scrollTop += list.scrollHeight - previousHeight;

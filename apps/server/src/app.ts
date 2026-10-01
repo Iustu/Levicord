@@ -14,8 +14,9 @@ import uploadRoutes from './routes/upload.routes';
 import downloadRoutes from './routes/download.routes';
 import userRoutes from './routes/user.routes';
 import { prisma } from './prisma';
-import { redis } from './socket';
+import { redis } from './lib/redis';
 import { checkMinioHealth } from './lib/minio';
+import { openApiSpec } from './lib/openapi';
 
 // Load environment variables
 import 'dotenv/config';
@@ -115,11 +116,40 @@ export function buildApp(): FastifyInstance {
     }
   });
 
-  // Routes
-  app.register(authRoutes, { prefix: '/api/auth' });
-  app.register(channelRoutes, { prefix: '/api/channels' });
-  app.register(userRoutes, { prefix: '/api/users' });
-  app.register(uploadRoutes, { prefix: '/api/upload' });
+  // OpenAPI Documentation (DMMT Cap. 1 & BSRS)
+  app.get('/api/openapi.json', async () => openApiSpec);
+  app.get('/api/docs', async (_req, reply) => {
+    reply.type('text/html').send(`<!DOCTYPE html>
+<html>
+<head>
+  <title>Levicord API Docs</title>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+  <script>
+    SwaggerUIBundle({
+      url: '/api/openapi.json',
+      dom_id: '#swagger-ui',
+    });
+  </script>
+</body>
+</html>`);
+  });
+
+  // Routes — Versioned (/api/v1) and legacy aliases (/api) for zero-downtime backwards compatibility
+  const registerApiRoutes = (prefix: string) => {
+    app.register(authRoutes, { prefix: `${prefix}/auth` });
+    app.register(channelRoutes, { prefix: `${prefix}/channels` });
+    app.register(userRoutes, { prefix: `${prefix}/users` });
+    app.register(uploadRoutes, { prefix: `${prefix}/upload` });
+  };
+
+  registerApiRoutes('/api/v1');
+  registerApiRoutes('/api');
   app.register(downloadRoutes, { prefix: '/uploads' });
 
   app.get('/livez', async () => {

@@ -342,6 +342,26 @@
   text-align: left;
 }
 
+.chat-breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: #949ba4;
+  margin-right: 6px;
+  white-space: nowrap;
+}
+
+.chat-breadcrumbs .breadcrumb-section {
+  color: #80848e;
+  font-weight: 500;
+}
+
+.chat-breadcrumbs .breadcrumb-separator {
+  color: #4e5058;
+  margin: 0 2px;
+}
+
 .chat-header-title h3 {
   margin: 0;
   font-size: 16px;

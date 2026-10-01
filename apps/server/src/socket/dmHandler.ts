@@ -3,25 +3,7 @@ import { z } from 'zod';
 import { createDirectMessage } from '../services/dm.service';
 import { checkRateLimit } from '../lib/redis';
 
-const attachmentSchema = z.object({
-  url: z.string().regex(/^\/uploads\//, 'Must be a relative upload path'),
-  type: z.enum(['image', 'video', 'file']),
-  fileName: z.string().max(255),
-  fileSize: z.number().positive(),
-  mimeType: z.string().max(100),
-});
-
-const dmSchema = z.object({
-  receiverId: z.string().cuid({ message: 'Invalid receiver ID' }),
-  content: z.string().max(2000).optional().nullable(),
-  attachments: z.array(attachmentSchema).max(5).optional(),
-}).refine(
-  (data) => (data.content && data.content.trim().length > 0) || (data.attachments && data.attachments.length > 0),
-  { message: 'Message must have content or attachments' },
-);
-
-const DM_LIMIT = 30;
-const DM_WINDOW_SECONDS = 60;
+import { dmSchema, RATE_LIMITS } from '../lib/socketSchemas';
 
 export interface DmHandlerDeps {
   createDirectMessage: typeof createDirectMessage;
@@ -51,8 +33,8 @@ export function registerDmHandler(
 
     const allowed = await deps.checkRateLimit(
       `socket_dm_rate:${userId}`,
-      DM_LIMIT,
-      DM_WINDOW_SECONDS,
+      RATE_LIMITS.DM_LIMIT,
+      RATE_LIMITS.DM_WINDOW_SECONDS,
     );
     if (!allowed) {
       socket.emit('error', { message: 'Message rate limit exceeded' });

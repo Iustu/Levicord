@@ -1,64 +1,20 @@
-import { useEffect, useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { API_BASE } from '../lib/api';
-import { useChatStore } from '../stores/useChatStore';
+import { useSession } from './useSession';
 
+/**
+ * Hook responsible for authentication navigation and user actions (login / logout).
+ *
+ * Delegates stateful session lifecycle to `useSession` (SRP — ESM Cap. 5).
+ */
 export function useAuth() {
   const navigate = useNavigate();
-  const location = useLocation();
-  const [token, setToken] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const setCurrentUserId = useChatStore((state) => state.setCurrentUserId);
-  const setCurrentUser = useChatStore((state) => state.setCurrentUser);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch(`${API_BASE}/api/auth/session`, { credentials: 'include' })
-      .then((response) => {
-        if (!response.ok) throw new Error('Unauthenticated');
-        return response.json() as Promise<{
-          authenticated: boolean;
-          user?: { id: string; sub: string; email?: string; displayName: string; avatarUrl?: string | null };
-        }>;
-      })
-      .then((data) => {
-        if (!cancelled && data.authenticated && data.user) {
-          setToken('authenticated');
-          const uid = data.user.sub || data.user.id;
-          setCurrentUserId(uid);
-          setCurrentUser({
-            id: uid,
-            email: data.user.email,
-            displayName: data.user.displayName,
-            avatarUrl: data.user.avatarUrl,
-          });
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setToken(null);
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
-
-    const handleUnauthorized = () => {
-      setToken(null);
-      navigate('/login', { replace: true });
-    };
-
-    window.addEventListener('auth_unauthorized', handleUnauthorized);
-
-    return () => {
-      cancelled = true;
-      window.removeEventListener('auth_unauthorized', handleUnauthorized);
-    };
-  }, [location, navigate, setCurrentUserId]);
+  const { token, setToken, isLoading } = useSession();
 
   const loginWithGoogle = () => {
     window.location.href = `${API_BASE}/api/auth/google`;
   };
 
-  // (Item 3.1) logout now awaits the request and shows a toast on network failure.
   const logout = async () => {
     try {
       const response = await fetch(`${API_BASE}/api/auth/logout`, { method: 'POST', credentials: 'include' });

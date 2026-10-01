@@ -4,25 +4,7 @@ import { createMessage, canAccessChannel } from '../services/channel.service';
 import { isAdmin } from '../services/auth.service';
 import { checkRateLimit, redis } from '../lib/redis';
 
-const attachmentSchema = z.object({
-  url: z.string().regex(/^\/uploads\//, 'Must be a relative upload path'), // Only allow server-hosted URLs
-  type: z.enum(['image', 'video', 'file']),
-  fileName: z.string().max(255),
-  fileSize: z.number().positive(),
-  mimeType: z.string().max(100),
-});
-
-const messageSchema = z.object({
-  channelId: z.string().cuid({ message: 'Invalid channel ID' }),
-  content: z.string().max(2000).optional().nullable(),
-  attachments: z.array(attachmentSchema).max(5).optional(),
-}).refine(
-  (data) => (data.content && data.content.trim().length > 0) || (data.attachments && data.attachments.length > 0),
-  { message: 'Message must have content or attachments' },
-);
-
-const MESSAGE_LIMIT = 30;
-const MESSAGE_WINDOW_SECONDS = 60;
+import { messageSchema, RATE_LIMITS } from '../lib/socketSchemas';
 
 export interface MessageHandlerDeps {
   createMessage: typeof createMessage;
@@ -91,8 +73,8 @@ export function registerMessageHandler(
 
     const allowed = await deps.checkRateLimit(
       `socket_message_rate:${userId}`,
-      MESSAGE_LIMIT,
-      MESSAGE_WINDOW_SECONDS,
+      RATE_LIMITS.MESSAGE_LIMIT,
+      RATE_LIMITS.MESSAGE_WINDOW_SECONDS,
     );
     if (!allowed) {
       socket.emit('error', { message: 'Message rate limit exceeded' });

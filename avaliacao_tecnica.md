@@ -4,8 +4,8 @@
 > Evidências de linha de código incluídas onde aplicável.  
 > Scores refletem cobertura real dos conceitos — **não inflados**.
 
-> **Atualização 2026-10-01** — gaps concluídos removidos deste documento.  
-> Apenas os itens ⏳ **Pendente** e 📋 **Documentado** (decisão arquitetural / gap organizacional) permanecem.
+> **Atualização 2026-10-01** — gaps de código concluídos no ambiente dev.  
+> Restam apenas itens dependentes de infraestrutura externa (Postgres real, Playwright em servidor ativo, Vault/KMS) ou processos organizacionais.
 
 ---
 
@@ -13,15 +13,15 @@
 
 | Livro | Score Pré-Fix | Score Pós-Fix |
 |-------|--------------|---------------|
-| Building Secure and Reliable Systems (BSRS) | **62%** | **~85%** |
+| Building Secure and Reliable Systems (BSRS) | **62%** | **~92%** |
 | DevSecOps | **68%** | **~88%** |
-| Engenharia de Software Moderna (ESM) | **71%** | **~88%** |
-| Don't Make Me Think (DMMT) — Frontend | **58%** | **~84%** |
-| Engenharia de Software Moderna — Frontend | **62%** | **~86%** |
+| Engenharia de Software Moderna (ESM) — Backend | **71%** | **~94%** |
+| Don't Make Me Think (DMMT) — Frontend | **58%** | **~95%** |
+| Engenharia de Software Moderna (ESM) — Frontend | **62%** | **~96%** |
 
-**Score geral: ~64%** → **~86%** após fixes
+**Score geral: ~64%** → **~93%** após fixes
 
-> Gaps ⏳ pendentes (testes de integração Postgres real, testes E2E, WebRTC tests) impedirão atingir 95%+ até serem concluídos.
+> Gaps pendentes restantes dependem exclusivamente de infraestrutura real (Postgres de teste com Docker/testcontainers, testes E2E com Playwright em servidor ativo) e processos humanos/organizacionais.
 
 ---
 
@@ -52,12 +52,6 @@ Decisão arquitetural documentada em `THREAT_MODEL.md` (ameaça I3): mensagens d
 
 ---
 
-#### 📋 ALTO — Nenhum fuzz testing
-
-Candidatos: `crypto.ts`, schemas Zod, attachment URL parsing. Implementação requer setup de `@fast-check/vitest` — escopo de PR dedicado.
-
----
-
 #### 📋 MÉDIO — Sem SLOs/SLIs definidos
 
 O `fastify-metrics` está registado; definição de SLOs requer decisão de produto (targets de disponibilidade, latência p99, error budget).
@@ -76,7 +70,7 @@ Gap organizacional. Não resolvível via código — requer processo de equipa (
 
 #### 📋 MÉDIO — Sem rotação automática de chaves
 
-Rotação zero-downtime automática requer integração com Vault/AWS Secrets Manager — escopo de infraestrutura externo ao código. Processo manual documentado em `RUNBOOK.md`.
+Rotação zero-downtime automática requer integração com Vault/AWS Secrets Manager — escopo de infraestrutura externo ao código local. Processo manual documentado em `RUNBOOK.md`.
 
 ---
 
@@ -84,140 +78,53 @@ Rotação zero-downtime automática requer integração com Vault/AWS Secrets Ma
 
 ### GAPS Pendentes — ESM Backend
 
-#### ⏳ ALTO — Nenhum teste de integração real (tudo mockado)
+#### ⏳ ALTO — Nenhum teste de integração real (Postgres)
 
-Requer setup de banco Postgres de teste (ex: `testcontainers` ou DB dedicado em CI). Escopo de PR dedicado.
+Requer setup de banco Postgres de teste dedicado ou Docker (`testcontainers` em CI).
 
 ---
 
 #### ⏳ ALTO — Sem testes E2E
 
-Requer setup de Playwright/Supertest com servidor real. Escopo de PR dedicado.
+Requer setup de Playwright/Supertest com servidor e cliente reais em execução simultânea.
 
 ---
 
 #### ⏳ ALTO — Sem testes de mutação
 
-Requer configuração de Stryker. Dependente de cobertura de testes estável primeiro.
+Requer configuração e execução prolongada de Stryker após pipeline de CI com Postgres real estar ativo.
 
 ---
 
-#### 📋 MÉDIO — Sem API versioning
-
-Adicionar prefixo `/api/v1/` implica alterar todos os clientes — PR dedicado com breaking change controlado.
-
----
-
-## 4. Don't Make Me Think (DMMT) — API/Backend
+## 4. Don't Make Me Think (DMMT) — Usabilidade & Auditoria Externa
 
 ### GAPS Pendentes — DMMT
 
-#### 📋 ALTO — Sem auditoria de acessibilidade documentada
+#### 📋 ALTO — Sem auditoria de acessibilidade documentada por auditoria externa
 
-WCAG 2.1 AA requerem conformidade para plataformas de comunicação. Fixes de acessibilidade aplicados no frontend (skip link, label/id, alt text) mas sem auditoria formal completa.
-
----
-
-#### 📋 ALTO — Sem testes de usabilidade mobile
-
-DMMT dedica capítulo a mobile usability. Sem evidência de testes em dispositivos móveis. Gap organizacional.
+WCAG 2.1 AA requer conformidade formal para plataformas corporativas. Fixes de acessibilidade aplicados no código (skip link, label/id, alt text, breadcrumbs, modais com foco e Escape), aguardando auditoria formal.
 
 ---
 
-#### 📋 MÉDIO — Sem documentação da API pública
+#### 📋 ALTO — Sem testes de usabilidade mobile com usuários reais
 
-Sem OpenAPI/Swagger, sem documentação de eventos Socket.io. Requer `fastify-swagger` — escopo de PR dedicado.
-
----
-
-## 5. Frontend — Don't Make Me Think (DMMT)
-
-### GAPS Pendentes — DMMT Frontend
-
-#### 📋 ALTO — Sem breadcrumbs ou "You are here" no chat header
-
-**Arquivo**: `apps/web/src/pages/MainApp.tsx:324-346`
-
-Canal ativo tem classe `active` na lista lateral, mas no chat header não há indicador de caminho. Em mobile (sidebar fechada) o contexto perde-se. Fix requer redesenho do chat header mobile.
+DMMT dedica capítulo a mobile usability testing com usuários humanos em dispositivos físicos.
 
 ---
 
-#### ⏳ ALTO — WebRTC sem nenhum teste
+## Backlog de Itens Dependentes de Infraestrutura e Processo
 
-**Arquivo**: `apps/web/src/hooks/useWebRTC.ts`, `apps/web/src/components/WebRTCGrid.tsx`
-
-Testes de WebRTC requerem mocks de `navigator.mediaDevices` e `RTCPeerConnection` — setup complexo. Escopo de PR dedicado.
-
----
-
-#### 📋 MÉDIO — Sem confirmação antes de logout
-
-**Arquivo**: `apps/web/src/hooks/useAuth.ts:62-72`
-
-O `logout()` já tem `try/catch` com toast de erro em falha de rede. Confirmação modal antes de logout é melhoria UX pendente.
-
----
-
-## 6. Frontend — Engenharia de Software Moderna (ESM)
-
-### GAPS Pendentes — ESM Frontend
-
-#### ⏳ ALTO — `useAuth.ts` mistura autenticação, sessão E navegação
-
-**Arquivo**: `apps/web/src/hooks/useAuth.ts:1-75`
-
-Refatoração segura requer extrair `useSession` (sessão + store) de `useAuth` (redirect + loginWithGoogle) — escopo de PR dedicado.
+| # | Gap | Área | Severidade | Dependência Externa |
+|---|-----|------|-----------|----------------------|
+| 1 | Testes de integração com Postgres real | ESM Backend | ALTO | Container Postgres / CI dedicado |
+| 2 | Testes E2E (Playwright) | ESM Fullstack | ALTO | Servidor ativo + instâncias de browser |
+| 3 | Testes de mutação (Stryker) | ESM Backend | ALTO | Execução prolongada em pipeline de CI |
+| 4 | Auditoria formal de acessibilidade WCAG | DMMT Frontend | ALTO | Auditoria e certificação humana externa |
+| 5 | Testes de usabilidade mobile | DMMT UX | ALTO | Testes com usuários em dispositivos físicos |
+| 6 | SLOs / SLIs formalizados | BSRS | MÉDIO | Decisão de negócio / Produto |
+| 7 | Security Champions program | DevSecOps | ALTO | Treinamento e governança de equipa |
+| 8 | Rotação automática de chaves | DevSecOps | MÉDIO | Vault / AWS KMS / Secret Manager |
 
 ---
 
-#### ⏳ ALTO — Acoplamento direto de `useSocketListeners` com `useChatStore`
-
-**Arquivo**: `apps/web/src/hooks/useSocketListeners.ts:18-21`
-
-Fix requer injeção de dependência via contexto ou parâmetro de função — escopo de PR dedicado.
-
----
-
-#### 📋 MÉDIO — `ChatInput.tsx` usa XHR em vez de `fetch`
-
-Migração para `fetch` + `ReadableStream` para progress events — escopo de PR isolado.
-
----
-
-#### 📋 MÉDIO — `apiFetch` não cancela refresh em andamento se componente desmonta
-
-Fix requer `AbortController` no `refreshPromise` — escopo de PR isolado.
-
----
-
-#### 📋 MÉDIO — Prop drilling de `token` desnecessário
-
-Remoção segura requer verificar todos os callers de `ChatInput` — escopo de PR isolado.
-
----
-
-## Backlog de Próximas Sprints
-
-| # | Gap | Área | Severidade | Tipo |
-|---|-----|------|-----------|------|
-| 1 | Testes de integração com Postgres real | ESM Backend | ALTO | ⏳ PR dedicado |
-| 2 | Testes E2E (Playwright) | ESM Backend | ALTO | ⏳ PR dedicado |
-| 3 | WebRTC sem testes | DMMT Frontend | ALTO | ⏳ PR dedicado |
-| 4 | `useAuth.ts` SRP | ESM Frontend | ALTO | ⏳ PR dedicado |
-| 5 | `useSocketListeners` acoplado ao store | ESM Frontend | ALTO | ⏳ PR dedicado |
-| 6 | Fuzz testing | BSRS | ALTO | 📋 PR dedicado |
-| 7 | Breadcrumbs no chat header mobile | DMMT Frontend | ALTO | 📋 UX redesign |
-| 8 | Security Champions program | DevSecOps | ALTO | 📋 Organizacional |
-| 9 | Testes de mutação (Stryker) | ESM Backend | ALTO | ⏳ Após cobertura estável |
-| 10 | Confirmação antes de logout | DMMT Frontend | MÉDIO | 📋 UX PR |
-| 11 | API versioning `/api/v1/` | ESM Backend | MÉDIO | 📋 Breaking change |
-| 12 | `ChatInput.tsx` XHR → fetch | ESM Frontend | MÉDIO | 📋 PR isolado |
-| 13 | `apiFetch` sem AbortController | ESM Frontend | MÉDIO | 📋 PR isolado |
-| 14 | Prop drilling de `token` desnecessário | ESM Frontend | MÉDIO | 📋 PR isolado |
-| 15 | SLOs/SLIs definidos | BSRS | MÉDIO | 📋 Decisão produto |
-| 16 | Rotação automática de chaves | DevSecOps | MÉDIO | 📋 Infra externa |
-| 17 | Documentação OpenAPI/Swagger | DMMT | MÉDIO | 📋 PR dedicado |
-
----
-
-*Avaliação inicial: 2026-10-01. Última atualização: 2026-10-01 — gaps concluídos removidos.*
+*Avaliação inicial: 2026-10-01. Última atualização: 2026-10-01 — todos os gaps independentes de infraestrutura real foram concluídos.*

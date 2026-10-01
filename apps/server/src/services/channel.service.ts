@@ -28,32 +28,19 @@ export async function canAccessChannel(channelId: string, userId: string, isUser
 }
 
 export async function createChannel(name: string, description?: string, type: 'TEXT' | 'VOICE' = 'TEXT', isPrivate = false, prisma: PrismaClient = defaultPrisma) {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    try {
-      return await prisma.$transaction(async (transaction: Prisma.TransactionClient) => {
-        const highestOrder = await transaction.channel.aggregate({
-          _max: { order: true },
-        });
+  const highestOrder = await prisma.channel.aggregate({
+    _max: { order: true },
+  });
 
-        return transaction.channel.create({
-          data: {
-            name,
-            description,
-            type,
-            isPrivate,
-            order: (highestOrder._max.order ?? -1) + 1,
-          },
-        });
-      }, { isolationLevel: 'Serializable' });
-    } catch (error: unknown) {
-      const prismaError = error as { code?: string };
-      if (prismaError.code !== 'P2034' || attempt === 2) {
-        throw error;
-      }
-    }
-  }
-
-  throw new Error('Unable to create channel');
+  return prisma.channel.create({
+    data: {
+      name,
+      description,
+      type,
+      isPrivate,
+      order: (highestOrder._max.order ?? -1) + 1,
+    },
+  });
 }
 
 export async function updateChannel(id: string, name: string, description?: string, prisma: PrismaClient = defaultPrisma) {

@@ -4,7 +4,7 @@ import { API_BASE } from '../lib/api';
 
 interface ChatInputProps {
   placeholder: string;
-  token: string;
+  token?: string; // Optional — cookies handle session authentication
   channelId?: string | null;
   onSend: (content: string | null, attachment: UploadedAttachment | null) => void;
   onTypingStart?: () => void;
@@ -56,53 +56,42 @@ export function ChatInput({ placeholder, token, onSend, onTypingStart, onTypingS
     if (!file) return;
 
     setIsUploading(true);
-    setUploadProgress(0);
+    setUploadProgress(20);
     setUploadError(null);
 
     const formData = new FormData();
     formData.append('file', file);
 
-    const xhr = new XMLHttpRequest();
-
-    xhr.upload.addEventListener('progress', (event) => {
-      if (event.lengthComputable) {
-        setUploadProgress(Math.round((event.loaded / event.total) * 100));
+    try {
+      setUploadProgress(50);
+      const headers: Record<string, string> = {};
+      if (token && token !== '__cookie__' && token !== 'authenticated') {
+        headers['Authorization'] = `Bearer ${token}`;
       }
-    });
 
-    xhr.addEventListener('load', () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        try {
-          const attachment = JSON.parse(xhr.responseText) as UploadedAttachment;
-          setPendingAttachment(attachment);
-          setUploadProgress(100);
-        } catch {
-          setUploadError('Resposta inválida do servidor.');
-        }
+      const res = await fetch(`${API_BASE}/api/upload`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: Object.keys(headers).length > 0 ? headers : undefined,
+        body: formData,
+      });
+
+      setUploadProgress(90);
+
+      if (res.ok) {
+        const attachment = (await res.json()) as UploadedAttachment;
+        setPendingAttachment(attachment);
+        setUploadProgress(100);
       } else {
-        try {
-          const err = JSON.parse(xhr.responseText) as { error?: string };
-          setUploadError(err.error || 'Upload falhou.');
-        } catch {
-          setUploadError('Upload falhou.');
-        }
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        setUploadError(err.error || 'Upload falhou.');
       }
-      setIsUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    });
-
-    xhr.addEventListener('error', () => {
+    } catch {
       setUploadError('Erro de rede durante o upload.');
+    } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
-    });
-
-    xhr.open('POST', `${API_BASE}/api/upload`);
-    xhr.withCredentials = true;
-    if (token && token !== '__cookie__' && token !== 'authenticated') {
-      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
     }
-    xhr.send(formData);
   };
 
   const handleSubmit = (e: React.FormEvent) => {

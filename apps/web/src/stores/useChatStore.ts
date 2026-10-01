@@ -21,8 +21,6 @@ function evictLru(
   return { dms: newDms, order: newOrder };
 }
 
-export type { Channel, Message, User, DirectMessage } from '@discord-clone/shared';
-
 export type ViewMode = 'channels' | 'dms';
 
 interface ChatState {

@@ -1,9 +1,10 @@
+import React, { useMemo } from 'react';
 import type { RefObject } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Hash, Loader2 } from 'lucide-react';
 import { API_BASE } from '../lib/api';
 import { Avatar } from './Avatar';
-import type { Message, DirectMessage, User } from '../stores/useChatStore';
+import type { Message, DirectMessage, User } from '@discord-clone/shared';
 
 interface MessageListProps {
   messages: (Message | DirectMessage)[];
@@ -43,6 +44,68 @@ function renderAttachment(att: { id?: string; url: string; type: string; fileNam
     </a>
   );
 }
+
+interface MessageItemProps {
+  id: string;
+  content: string | null;
+  createdAt: string;
+  author: User;
+  isConsecutive: boolean;
+  attachments?: { id?: string; url: string; type: string; fileName: string }[];
+}
+
+/**
+ * Memoized individual message item to prevent re-parsing ReactMarkdown
+ * on every keystroke or status update.
+ * (ESM Cap. 9 — High Performance Rendering)
+ */
+const MessageItem = React.memo(function MessageItem({
+  content,
+  createdAt,
+  author,
+  isConsecutive,
+  attachments = [],
+}: MessageItemProps) {
+  const renderedContent = useMemo(() => {
+    if (!content) return null;
+    return <ReactMarkdown>{content}</ReactMarkdown>;
+  }, [content]);
+
+  const formattedTime = useMemo(() => {
+    return new Date(createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }, [createdAt]);
+
+  return (
+    <div className={`message-item ${isConsecutive ? 'consecutive' : ''}`}>
+      {!isConsecutive && (
+        <Avatar
+          src={author.avatarUrl}
+          name={author.displayName}
+          size={40}
+          className="avatar"
+        />
+      )}
+      <div className="message-content">
+        {!isConsecutive && (
+          <div className="message-header">
+            <span className="author-name">{author.displayName}</span>
+            <span className="timestamp">{formattedTime}</span>
+          </div>
+        )}
+        {content && (
+          <div className="text markdown-content">
+            {renderedContent}
+          </div>
+        )}
+        {attachments.length > 0 && (
+          <div className="msg-attachments">
+            {attachments.map(renderAttachment)}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+});
 
 export function MessageList({
   messages,
@@ -125,36 +188,15 @@ export function MessageList({
           const msgAttachments = (msg as { attachments?: { id?: string; url: string; type: string; fileName: string }[] }).attachments || [];
 
           return (
-            <div key={msg.id} className={`message-item ${isConsecutive ? 'consecutive' : ''}`}>
-              {!isConsecutive && (
-                <Avatar
-                  src={author.avatarUrl}
-                  name={author.displayName}
-                  size={40}
-                  className="avatar"
-                />
-              )}
-              <div className="message-content">
-                {!isConsecutive && (
-                  <div className="message-header">
-                    <span className="author-name">{author.displayName}</span>
-                    <span className="timestamp">
-                      {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
-                )}
-                {msg.content && (
-                  <div className="text markdown-content">
-                    <ReactMarkdown>{msg.content}</ReactMarkdown>
-                  </div>
-                )}
-                {msgAttachments.length > 0 && (
-                  <div className="msg-attachments">
-                    {msgAttachments.map(renderAttachment)}
-                  </div>
-                )}
-              </div>
-            </div>
+            <MessageItem
+              key={msg.id}
+              id={msg.id}
+              content={msg.content}
+              createdAt={msg.createdAt}
+              author={author}
+              isConsecutive={isConsecutive}
+              attachments={msgAttachments}
+            />
           );
         })
       )}
