@@ -1,13 +1,13 @@
+import { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { useEffect } from 'react';
-import Login from './pages/Login';
-import ProfileSetup from './pages/ProfileSetup';
 import { useAuth } from './hooks/useAuth';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
-import MainApp from './pages/MainApp';
-import JoinInvite from './pages/JoinInvite';
+const Login = lazy(() => import('./pages/Login'));
+const ProfileSetup = lazy(() => import('./pages/ProfileSetup'));
+const MainApp = lazy(() => import('./pages/MainApp'));
+const JoinInvite = lazy(() => import('./pages/JoinInvite'));
 
 /** Maps route paths to human-readable page titles for the browser tab. */
 const PAGE_TITLES: Record<string, string> = {
@@ -48,15 +48,46 @@ function App() {
       </a>
       <DynamicTitle />
       <ErrorBoundary>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/auth/callback" element={<AuthCallback />} />
-          <Route path="/join/:code" element={<JoinInvite />} />
-          <Route path="/invite/:code" element={<JoinInvite />} />
-          <Route path="/setup" element={<ProtectedRoute><ProfileSetup /></ProtectedRoute>} />
-          <Route path="/app" element={<ProtectedRoute><MainApp /></ProtectedRoute>} />
-          <Route path="/" element={<Navigate to="/login" />} />
-        </Routes>
+        <Suspense
+          fallback={
+            <div
+              role="status"
+              aria-live="polite"
+              style={{
+                display: 'flex',
+                height: '100vh',
+                width: '100%',
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: '#1e1f22',
+                color: '#f2f3f5',
+                fontFamily: "'Inter', sans-serif",
+              }}
+            >
+              <div
+                style={{
+                  width: '36px',
+                  height: '36px',
+                  border: '3px solid rgba(255, 255, 255, 0.1)',
+                  borderTopColor: '#5865F2',
+                  borderRadius: '50%',
+                  animation: 'spin 1s linear infinite',
+                }}
+              />
+              <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+            </div>
+          }
+        >
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/auth/callback" element={<AuthCallback />} />
+            <Route path="/join/:code" element={<JoinInvite />} />
+            <Route path="/invite/:code" element={<JoinInvite />} />
+            <Route path="/setup" element={<ProtectedRoute><ProfileSetup /></ProtectedRoute>} />
+            <Route path="/app" element={<ProtectedRoute><MainApp /></ProtectedRoute>} />
+            <Route path="/" element={<Navigate to="/login" />} />
+          </Routes>
+        </Suspense>
       </ErrorBoundary>
     </Router>
   );

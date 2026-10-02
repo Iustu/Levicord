@@ -1,7 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../prisma';
 import { requireAuth, getAuthUserId } from '../lib/auth';
-import { isSuperAdmin } from '../services/auth.service';
+import { isSuperAdmin, invalidateAdminCache } from '../services/auth.service';
 import {
   canManageSuperAdmin,
   isRootSuperAdmin,
@@ -142,6 +142,8 @@ export default async function adminRoutes(fastify: FastifyInstance) {
         },
       });
 
+      await invalidateAdminCache(targetUserId);
+
       return reply.code(200).send(updated);
     },
   );
@@ -196,6 +198,8 @@ export default async function adminRoutes(fastify: FastifyInstance) {
           role: true,
         },
       });
+
+      await invalidateAdminCache(targetUserId);
 
       return reply.code(200).send(updated);
     },

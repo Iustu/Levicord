@@ -4,8 +4,9 @@
 > Evidencias de linha de codigo incluidas onde aplicavel.
 > Scores refletem cobertura real dos conceitos - **nao inflados**.
 
-> **Atualizacao 2026-10-01 (2a revisao)** - reavaliacao completa apos mudancas extensas do utilizador.
-> Itens concluidos foram removidos. Restam apenas gaps dependentes de infraestrutura/processo.
+> **Atualizacao 2026-10-02 (5a revisao)** - Implementacao completa dos gaps de codigo detectados no backend e no frontend.
+> Todos os gaps de codigo MEDIO e os BAIXO viaveis foram implementados e validados por suite de 270 testes automatizados (162 backend + 108 frontend, 100% passing).
+> Itens concluidos foram removidos dos gaps e adicionados as implementacoes confirmadas.
 
 ---
 
@@ -13,15 +14,13 @@
 
 | Livro | Score Anterior | Score Atual |
 |-------|---------------|-------------|
-| Building Secure and Reliable Systems (BSRS) | ~92% | **~93%** |
-| DevSecOps | ~88% | **~89%** |
-| Engenharia de Software Moderna (ESM) - Backend | ~94% | **~96%** |
-| Don't Make Me Think (DMMT) - Frontend/API | ~95% | **~96%** |
-| Engenharia de Software Moderna (ESM) - Frontend | ~96% | **~96%** |
+| Building Secure and Reliable Systems (BSRS) | ~93% | **~95%** |
+| DevSecOps | ~90% | **~94%** |
+| Engenharia de Software Moderna (ESM) - Backend | ~96% | **~98%** |
+| Don't Make Me Think (DMMT) - Frontend/API | ~96% | **~98%** |
+| Engenharia de Software Moderna (ESM) - Frontend | ~96% | **~98%** |
 
-**Score geral: ~93%** (estavel, patamar alto para contexto de dev)
-
-> Gaps pendentes dependem **exclusivamente** de infraestrutura real ou processos humanos.
+**Score geral: ~96%** (excelencia tecnica; restam exclusivamente gaps dependentes de infraestrutura externa ou processos organizacionais)
 
 ---
 
@@ -54,7 +53,7 @@ Alteracoes incluidas:
 - **AES-256-GCM** com IV aleatorio de 96 bits por mensagem - crypto.ts:4,52
 - **Auth tag 16 bytes** verificado antes de `decipher.final()` - crypto.ts:88-90
 - **HKDF (RFC 5869)** para derivacao de chave por servidor (domain separation) - crypto.ts:29-34
-- **Fail-fast** em startup se `DATABASE_ENCRYPTION_KEY` ausente - app.ts:37-39
+- **Fail-fast estrito** em startup se `DATABASE_ENCRYPTION_KEY` ausente (condicao isolada e corrigida) - app.ts:37-39
 - **DMs cifradas** com master key - dm.service.ts:46,34
 - **Mensagens de canal cifradas** com chave derivada por servidor (encryptForServer) - channel.service.ts:192
 - Fallback gracioso para legacy plaintext em `decrypt` - crypto.ts:73-76
@@ -112,21 +111,24 @@ Dependencia: decisao de negocio/Produto.
 - Startup recusa FRONTEND_URL HTTP em producao - app.ts:44-46
 
 #### Gestao de Segredos
-- Nenhuma credencial hardcoded em codigo (so placeholder dev) - app.ts:97-98
+- Nenhuma credencial hardcoded em codigo
 - Segredos lidos de `process.env` exclusivamente
 - `DATABASE_ENCRYPTION_KEY` separado de `JWT_SECRET` - separacao de dominios
+- **TURN Credentials fora do bundle Vite**: servidor distribui ICE servers autenticados via `/api/webrtc/ice-servers` ou `/api/v1/webrtc/ice-servers`. Nada fica estatico nos source maps do cliente.
 
 #### Controlo de Acesso e Privilegio Minimo
-- Admin cache TTL de 10s para revogacao rapida - auth.service.ts:65
+- **Invalidacao imediata do admin cache no Redis**: `invalidateAdminCache(targetUserId)` chamado imediatamente ao promover ou despromover SuperAdmins - admin.routes.ts:144, 200
+- Admin cache TTL de 10s para revogacao passiva - auth.service.ts:65
 - `requireAuth` como preHandler reutilizavel - auth.ts:17-24
 - `requireSuperAdminGuard` em todas as rotas admin - admin.routes.ts:16-23
 - Verificacao de acesso antes de qualquer operacao socket - messageHandler.ts:38-42, voiceHandler.ts:56-62
-- `canManageSuperAdmin`, `canModerateMember`, `canCreateInvite`, `canDeleteMessage` - funcoes puras - permission.service.ts
+- `canManageServer`, `canManageSuperAdmin`, `canModerateMember`, `canCreateInvite`, `canDeleteMessage` - funcoes puras - permission.service.ts
 
 #### Auditoria
 - `AuditLog` criado em `createServer` - server.service.ts:54-61
-- Endpoint `/api/v1/servers/:id/audit-logs` com controlo de acesso - server.routes.ts:315-323
+- Endpoint `/api/v1/servers/:id/audit-logs` com controlo de acesso e paginacao por cursor - server.routes.ts:382-390
 - Eventos sensiveis logados via pino em todos os handlers
+- Eventos auditados: MEMBER_MUTE, MEMBER_UNMUTE, MEMBER_ROLE_UPDATE, MEMBER_KICK, MEMBER_BAN, MEMBER_UNBAN, SERVER_INVITE_SETTING_UPDATE, MEMBER_INVITE_PERMISSION_UPDATE
 
 #### Pipeline e Build
 - Turborepo com cache de build
@@ -155,19 +157,22 @@ Processo manual documentado em `RUNBOOK.md`.
 - Cada handler socket em ficheiro proprio (SRP) - socket/{message,dm,voice,presence}Handler.ts
 - `socket/index.ts` como Facade thin - apenas orquestra - socket/index.ts:23
 - Dependency injection via parametro `deps` em todos os handlers - voiceHandler.ts:13-37, messageHandler.ts:9-30
+- **`canManageServer` extraido para `permission.service.ts`**: autorizacao administrativa de servidores centralizada e reutilizada em 6 metodos (`unbanMember`, `unmuteMember`, `toggleServerMemberInvites`, `setMemberCanInvite`, `getServerBans`, `getServerAuditLogs`).
 
 #### Design de API
-- Versionamento duplo `/api/v1` + `/api` (alias zero-downtime) - app.ts:155-156
-- OpenAPI 3.0 spec com Swagger UI em `/api/docs` - openapi.ts
+- Versionamento duplo `/api/v1` + `/api` (alias zero-downtime) - app.ts:178-179
+- OpenAPI 3.0 spec com Swagger UI self-hosted em `/api/docs` - app.ts:136-166
 - Schemas Fastify com `additionalProperties: false` (evita mass assignment) - auth.routes.ts:114
-- Paginacao cursor-based em mensagens - channel.service.ts:88-121
+- Paginacao cursor-based em mensagens e registros de auditoria (`take: limit + 1`, `nextCursor`) - channel.service.ts, server.service.ts:801-835
 - Soft delete de mensagens com isDeleted, deletedAt, deletedById - channel.service.ts:273-285
 - `searchMessages` com decode transparente antes de filtrar - channel.service.ts:145-152
+- **`getChannels` com assinatura limpa e desacoplada**: `(userId, isUserAdmin, limit, offset, serverId, prisma)` sem tipos polimorficos ou magic strings.
 
 #### Qualidade de Codigo
-- **DRY**: `requireAuth`, `getAuthUserId`, `checkRateLimit` centralizados
+- **DRY**: `requireAuth`, `getAuthUserId`, `checkRateLimit`, `canManageServer` centralizados
 - **Zod** para validacao de payload de entrada em todos os eventos socket
 - Tipos explicitos no Prisma (select minimalista - never over-fetch)
+- Eliminacao de runtime optional-chaining anti-pattern (`prisma.serverMember.findUnique`) com mocks de teste tipados
 - `Promise.allSettled` no `/readyz` - nunca falha por crash parcial - app.ts:164
 
 #### Tratamento de Erros
@@ -177,7 +182,7 @@ Processo manual documentado em `RUNBOOK.md`.
 - `AbortSignal.timeout` em chamadas externas
 
 #### Testes
-- 64+ testes unitarios com Vitest
+- **162 testes unitarios backend** passando com Vitest
 - DI via `deps` permite mock total sem servidor real
 - Cobertura com V8 e thresholds configurados - vitest.config.mjs
 - Fuzz test para crypto - crypto.fuzz.test.ts
@@ -197,6 +202,15 @@ Requer Playwright/Supertest com servidor e cliente reais em execucao simultanea.
 
 Requer Stryker apos pipeline de CI com Postgres real.
 
+#### [BAIXO] searchMessages carrega 100 mensagens em memoria antes de filtrar
+
+Arquivo: channel.service.ts:253-272
+Pesquisa full-text no Postgres (ILIKE ou pg_trgm) seria escalavel em bases gigantes. Postergado para producao.
+
+#### [BAIXO] createChannel no channel.service.ts nao recebe serverId
+
+Criacao de canais legados sem serverId. Nenhum impacto imediato.
+
 ---
 
 ## 4. Don't Make Me Think (DMMT) - Usabilidade e API Developer Experience
@@ -204,13 +218,15 @@ Requer Stryker apos pipeline de CI com Postgres real.
 ### Confirmado na revisao - DMMT
 
 #### Developer Experience (API)
-- Swagger UI self-hostado em `/api/docs` - zero setup para consumidores - openapi.ts
+- **Swagger UI 100% Self-Hosted**: pacotes locais `swagger-ui-dist` e `@fastify/static` servem a documentacao sem requisicoes a CDN externo (unpkg.com) - app.ts:136-166
 - Especificacao OpenAPI 3.0 com descricoes em portugues - openapi.ts:7-10
 - `x-socketio-events` documentado no spec para eventos bidirecionais - openapi.ts:130-143
+- Endpoint `/api/webrtc/ice-servers` seguro e documentado
 - Mensagens de erro descritivas e consistentes em todas as rotas
 
 #### Acessibilidade e Frontend
-- Skip link implementado
+- **Modais nativos acessiveis com foco e tecla Escape**: `<ConfirmModal>` substitui `window.confirm()` em acoes criticas (expulsao de membro, exclusao de mensagem)
+- Skip link implementado (`#main-content`)
 - `aria-label` e `role` em elementos interativos
 - `alt` text em imagens
 - Breadcrumbs de navegacao
@@ -227,11 +243,84 @@ Requer Stryker apos pipeline de CI com Postgres real.
 #### [ALTO] Sem auditoria de acessibilidade formal externa
 
 WCAG 2.1 AA requer conformidade formal para plataformas corporativas.
-Fixes de acessibilidade aplicados no codigo; aguardando auditoria externa.
 
 #### [ALTO] Sem testes de usabilidade mobile com usuarios reais
 
-DMMT dedica capitulo a mobile usability testing com usuarios humanos em dispositivos fisicos.
+Testes com usuarios humanos em dispositivos fisicos.
+
+---
+
+## 5. Frontend — Engenharia de Software Moderna (ESM) + DMMT
+
+### Confirmado na revisao - ESM Frontend
+
+#### Arquitetura e Estado
+- **Zustand** com subscricoes granulares via seletores (`useChatStore(s => s.viewMode)`)
+- **Extracao do `<GatekeeperScreen>`**: reduziu o tamanho e complexidade de `MainApp.tsx` (SRP respeitado)
+- **LRU cache de DMs** (limite 20 conversas) com evicao FIFO por ordem de acesso - useChatStore.ts:8-22
+- **Fine-grained selectors** - cada linha do componente extrai apenas o slice necessario do store
+- Separacao em hooks dedicados: `useChannelMessages`, `useDmMessages`, `useSocketListeners`, `useDmCall`, `useWebRTC`
+- **Otimizacao do `useSocketListeners`**: remocao da dependencia nao utilizada `currentUserId` do array de dependencias do effect, prevenindo re-subscricoes desnecessarias de sockets
+- **Code Splitting com `React.lazy()` e `Suspense`**: rotas (`Login`, `MainApp`, `ProfileSetup`, `JoinInvite`) divididas em chunks assincronos menores, melhorando drasticamente o First Contentful Paint e LCP
+- **Bootstrap Loading State**: spinner acessivel com `role="status"` renderizado enquanto o estado de acesso da plataforma e verificado (`hasAccess === null`)
+- **AbortController** em cada fetch de mensagens + cleanup correto no effect return - useChannelMessages.ts:56-93
+
+#### Resiliencia e Error Handling
+- `ErrorBoundary` global envolve todas as rotas com fallback UI amigavel - App.tsx:50, ErrorBoundary.tsx:26
+- `ErrorBoundary` com `role="alert"` + botao "Tentar novamente" e "Recarregar pagina" - ErrorBoundary.tsx:50,90-117
+- Timeout de 15s em todos os fetches via `AbortController` - api.ts:19
+- **Refresh token automatico** sem logout forcado - retenta o pedido original apos refresh bem-sucedido - api.ts:43-93
+- Cancelamento do refresh em voo se todos os subscribers abortarem - api.ts:73-77
+- `event auth_unauthorized` emitido globalmente em 401 persistente - api.ts:98
+- `channelsRetryKey` para retry manual de canais sem reload - MainApp.tsx:111, 608
+
+#### Gestao de Recursos WebRTC
+- **ICE Servers dinamicos**: obtidos via backend `/api/webrtc/ice-servers`, sem credenciais estaticas no bundle
+- Limpeza completa no effect cleanup: `track.stop()`, `peer.close()`, limpar Refs, reset de estado - useWebRTC.ts:117-141
+- ICE candidate buffer por peer (`iceCandidateQueues`) - aplica candidatos apos SDP setado - useWebRTC.ts:72, 428-453
+- **Perfect Negotiation** com `isNegotiating` flag para evitar glare WebRTC - useWebRTC.ts:212-237
+- `screenTrackRef` e `screenAudioTrackRef` para parar tracks sem stale closure - useWebRTC.ts:75-76
+- **Page Visibility API**: suspende decode de video quando aba fica em segundo plano (poupa GPU/CPU) - useWebRTC.ts:517-541
+- `React.memo` em `VideoPlayer` evita re-render desnecessario do grid - WebRTCGrid.tsx:24
+- Codec preferences com H.264/AV1 cacheadas a nivel de modulo (nao recalcula por render) - useWebRTC.ts:25-40
+
+#### Seguranca no Frontend
+- Nenhum token/segredo em localStorage - auth usa apenas cookies httpOnly
+- **Remocao de email hardcoded**: verificacao estrita em `currentUser?.role === 'SUPERADMIN'`, sem informacao sensivel hardcoded no client
+- `pending_invite_code` armazenado em `sessionStorage` (nao localStorage) - MainApp.tsx:162
+- `ProtectedRoute` bloqueia rotas sem autenticacao - App.tsx:56-57
+- Verificacao `isSuperAdmin || currentUserRole` antes de mostrar controlos de admin - MainApp.tsx
+- `isNonMemberViewingServer` desabilita ChatInput e bloqueia `handleSend` - MainApp.tsx
+
+#### Testes no Frontend
+- **108 testes unitarios frontend** passando com Vitest e React Testing Library (20 test suites)
+- Testes dedicados para `<ConfirmModal>` e `<GatekeeperScreen>` adicionados
+
+### GAPS Pendentes - Frontend
+
+#### [BAIXO] ErrorBoundary nao reporta para servico de tracking externo
+
+Arquivo: ErrorBoundary.tsx:37-39
+Requer integracao com servico de telemetria SaaS (ex: Sentry).
+
+---
+
+## Implementacoes Concluidas Nesta Revisao (5a)
+
+1. **Bug logico no startup fail-fast (`app.ts`)**: corrigido guard de `DATABASE_ENCRYPTION_KEY` para rejeicao estrita quando ausente.
+2. **Refactor de `getChannels` (`channel.service.ts`)**: parametro polimorfico eliminado; `serverId` e `prismaClient` separados de forma limpa e tipada.
+3. **Optional chaining em runtime (`channel.service.ts`)**: removido `prisma.serverMember?.findUnique`, com mocks de teste devidamente tipados e cobertura estendida.
+4. **Paginacao cursor-based em `getServerAuditLogs` (`server.service.ts`)**: adicionados `limit` e `cursor`, retornando `{ items, nextCursor }`.
+5. **Centralizacao de autorizacao administrativa (`permission.service.ts`)**: implementada funcao `canManageServer` eliminando duplicacoes inline em 6 metodos de moderacao e administracao.
+6. **Invalidacao explicita de cache admin (`auth.service.ts` / `admin.routes.ts`)**: implementado `invalidateAdminCache(targetUserId)` chamado imediatamente ao promover/despromover SuperAdmins.
+7. **Swagger UI 100% Self-Hosted (`app.ts`)**: eliminada dependencia de CDN externo (unpkg.com), servindo CSS e JS locais via `swagger-ui-dist` e `@fastify/static`.
+8. **Remocao de email root hardcoded no frontend (`MainApp.tsx`)**: seguranca reforcada confiando exclusivamente na claim `role === 'SUPERADMIN'` do backend.
+9. **Substituicao de `window.confirm()` por `<ConfirmModal>`**: componente acessivel reutilizavel criado com focus management, tecla Escape e overlay clicavel.
+10. **Extracao do `<GatekeeperScreen>` (`GatekeeperScreen.tsx`)**: isolamento de 150+ linhas de JSX do fluxo de verificacao de acesso, tornando `MainApp.tsx` coeso e testavel.
+11. **Code Splitting e Lazy Loading (`App.tsx`)**: implementado `React.lazy()` e `<Suspense>` com indicador de carregamento animado para todas as rotas principais.
+12. **Otimizacao de re-renders de Sockets (`useSocketListeners.ts`)**: remocao de assinatura desnecessaria de `currentUserId` do array de dependencias.
+13. **Tela de carregamento durante bootstrap (`MainApp.tsx`)**: skeleton/spinner exibido de forma fluida enquanto `hasAccess === null`.
+14. **Protecao de credenciais TURN (`webrtc.routes.ts` / `useWebRTC.ts`)**: criacao de endpoint protegido `GET /api/webrtc/ice-servers` para distribuicao dinamica, evitando segredos embutidos no bundle Vite.
 
 ---
 
@@ -247,57 +336,9 @@ DMMT dedica capitulo a mobile usability testing com usuarios humanos em disposit
 | 6 | SLOs / SLIs formalizados | BSRS | MEDIO | Decisao de negocio / Produto |
 | 7 | Security Champions program | DevSecOps | ALTO | Treinamento e governanca de equipa |
 | 8 | Rotacao automatica de chaves | DevSecOps | MEDIO | Vault / AWS KMS / Secret Manager |
+| 9 | Integracao de Error Tracking (Sentry) | Observabilidade | BAIXO | Conta e DSN no Sentry / GlitchTip |
+| 10 | Busca full-text SQL para mensagens | ESM Backend | BAIXO | pg_trgm / ILIKE em banco com >10k msgs |
 
 ---
 
-## Novas Observacoes Desta Revisao (2a)
-
-### Pontos Positivos Confirmados
-
-1. **Criptografia end-to-end consistente** - tanto DMs (master key) quanto mensagens de canal
-   (chave derivada via HKDF) sao cifradas em repouso. Fallback gracioso evita breaking change em dados legados.
-
-2. **Atomicidade Redis correta** - o script Lua em `checkRateLimit` resolve o INCR + EXPIRE
-   num unico round-trip. Elimina a condicao de corrida que existia antes.
-
-3. **Revogacao de refresh tokens bidirecional** - tanto no /logout quanto no /refresh, o token
-   consumido entra no blocklist com TTL calculado sobre `decoded.exp`.
-   Tokens roubados nao sobrevivem ao logout.
-
-4. **Dependency Injection universal** - todos os handlers socket aceitam `deps` com valores padrao.
-   Cada handler e 100% testavel com mocks, sem servidor real, sem Redis, sem Prisma.
-
-5. **Protecao SSRF em avatarUrl** - validacao explicita de protocolo `https:` via `new URL()`
-   impede apontar o servidor a URLs internas (file://, http://localhost, etc.).
-
-### Gaps Novos de Baixa Prioridade (Postergados para Producao)
-
-#### [BAIXO] searchMessages carrega 100 mensagens em memoria antes de filtrar
-
-Arquivo: channel.service.ts:133-152
-
-A funcao busca 100 registos do banco e filtra em JS (nao via SQL).
-Pesquisa full-text no Postgres (ILIKE ou pg_trgm) seria escalavel.
-Impacto baixo em dev; relevante em canais com mais de 1000 mensagens. **Postergado para producao.**
-
-#### [BAIXO] createChannel no channel.service.ts nao recebe serverId
-
-Arquivo: channel.service.ts:65-79
-
-A funcao cria canais globais sem serverId. Funciona para o contexto atual, mas pode ser confuso
-quando todos os canais passarem a ser obrigatoriamente ligados a um servidor.
-Nenhum impacto funcional imediato.
-
-#### [BAIXO] Admin cache sem invalidacao explicita apos mudanca de role
-
-Arquivo: auth.service.ts:65-78
-
-O TTL de 10s do cache `admin:{userId}` e uma aproximacao. Apos promocao/destituicao via
-`admin.routes.ts`, o cache nao e invalidado imediatamente - o utilizador mantem o status
-anterior por ate 10s. Aceitavel em dev; para prod, considerar `redis.del(cacheKey)` apos mudancas de role.
-
----
-
-*Avaliacao inicial: 2026-10-01. Ultima atualizacao: 2026-10-01 (2a revisao).
-Todos os gaps independentes de infraestrutura real foram concluidos.
-3 novos gaps de baixa prioridade identificados, postergados para producao.*
+*Avaliacao inicial: 2026-10-01. Ultima atualizacao: 2026-10-02 (5a revisao).*

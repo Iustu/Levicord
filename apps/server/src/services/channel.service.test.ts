@@ -68,6 +68,47 @@ describe('Channel Service', () => {
       const allowed = await canAccessChannel('ghost-ch', 'user-1', false, mockPrisma);
       expect(allowed).toBe(false);
     });
+
+    it('should reject access if channel belongs to a server and user is not a server member', async () => {
+      const mockPrisma = {
+        channel: {
+          findUnique: vi.fn().mockResolvedValue({
+            id: 'server-ch',
+            serverId: 'server-1',
+            isPrivate: false,
+            members: [],
+          }),
+        },
+        serverMember: {
+          findUnique: vi.fn().mockResolvedValue(null),
+        },
+      } as unknown as PrismaClient;
+
+      const allowed = await canAccessChannel('server-ch', 'user-1', false, mockPrisma);
+      expect(allowed).toBe(false);
+      expect(mockPrisma.serverMember.findUnique).toHaveBeenCalledWith({
+        where: { serverId_userId: { serverId: 'server-1', userId: 'user-1' } },
+      });
+    });
+
+    it('should allow access if channel belongs to a server and user is a server member', async () => {
+      const mockPrisma = {
+        channel: {
+          findUnique: vi.fn().mockResolvedValue({
+            id: 'server-ch',
+            serverId: 'server-1',
+            isPrivate: false,
+            members: [],
+          }),
+        },
+        serverMember: {
+          findUnique: vi.fn().mockResolvedValue({ id: 'sm-1', serverId: 'server-1', userId: 'user-1' }),
+        },
+      } as unknown as PrismaClient;
+
+      const allowed = await canAccessChannel('server-ch', 'user-1', false, mockPrisma);
+      expect(allowed).toBe(true);
+    });
   });
 
   describe('createMessage', () => {
@@ -190,7 +231,7 @@ describe('Channel Service', () => {
         },
       } as unknown as PrismaClient;
 
-      await getChannels('user-1', false, 100, 0, mockPrisma);
+      await getChannels('user-1', false, 100, 0, undefined, mockPrisma);
 
       expect(mockPrisma.channel.findMany).toHaveBeenCalledWith({
         where: {
@@ -212,7 +253,7 @@ describe('Channel Service', () => {
         },
       } as unknown as PrismaClient;
 
-      await getChannels('admin-id', true, 100, 0, mockPrisma);
+      await getChannels('admin-id', true, 100, 0, undefined, mockPrisma);
 
       expect(mockPrisma.channel.findMany).toHaveBeenCalledWith({
         where: undefined,

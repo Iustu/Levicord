@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSocket } from './useSocket';
+import { apiFetch } from '../lib/api';
 import type {
   ScreenShareResolution,
   ScreenShareFps,
@@ -38,6 +39,30 @@ const _cachedCodecs: Parameters<RTCRtpTransceiver['setCodecPreferences']>[0] | n
     return rank(a.mimeType) - rank(b.mimeType);
   });
 })();
+
+const DEFAULT_STUN_SERVERS: RTCIceServer[] = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+];
+
+let cachedIceServers: RTCIceServer[] | null = null;
+let iceServersPromise: Promise<RTCIceServer[]> | null = null;
+
+export async function getOrFetchIceServers(): Promise<RTCIceServer[]> {
+  if (cachedIceServers) return cachedIceServers;
+  if (!iceServersPromise) {
+    iceServersPromise = apiFetch<{ iceServers: RTCIceServer[] }>('/api/webrtc/ice-servers')
+      .then((data) => {
+        if (data?.iceServers && Array.isArray(data.iceServers)) {
+          cachedIceServers = data.iceServers;
+          return data.iceServers;
+        }
+        return DEFAULT_STUN_SERVERS;
+      })
+      .catch(() => DEFAULT_STUN_SERVERS);
+  }
+  return iceServersPromise;
+}
 
 function applyHardwareAcceleratedCodecPreferences(transceiver: RTCRtpTransceiver) {
   if (_cachedCodecs && typeof transceiver.setCodecPreferences === 'function') {
@@ -87,6 +112,7 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
 
     const startWebRTC = async () => {
       try {
+        await getOrFetchIceServers();
         let stream: MediaStream | null = null;
 
         // Em canal de voz, inicia com áudio (vídeo desligado por padrão)
@@ -161,17 +187,9 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
         return existing;
       }
 
-      // OPT-13 — Configuração de STUN + TURN server para NAT simétrico
+      // Dynamic STUN + TURN server configuration fetched from backend
       const peer = new RTCPeerConnection({
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' },
-          {
-            urls: 'turn:levicord.uk:3478',
-            username: import.meta.env.VITE_TURN_USER,
-            credential: import.meta.env.VITE_TURN_PASSWORD,
-          },
-        ]
+        iceServers: cachedIceServers || DEFAULT_STUN_SERVERS,
       });
 
       let primaryStreamId: string | null = null;

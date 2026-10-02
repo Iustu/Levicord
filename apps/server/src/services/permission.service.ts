@@ -255,3 +255,27 @@ export function canCreateInvite(
 
   return { allowed: true };
 }
+
+/**
+ * Evaluates whether an actor has administrative privileges over a server.
+ *
+ * Rules:
+ * 1. Global Superadmins have full authority across all servers.
+ * 2. Server Owners and Server Admins (or Server Member with OWNER/ADMIN role) can manage server settings and members.
+ */
+export function canManageServer(
+  actor: ActorContext,
+  server: ServerContext,
+): PermissionResult {
+  const isGlobalSuper = actor.role === 'SUPERADMIN' || isRootSuperAdmin(actor.email);
+  const isServerAdmin =
+    actor.serverRole === 'ADMIN' ||
+    actor.serverRole === 'OWNER' ||
+    actor.id === server.ownerId;
+
+  if (isGlobalSuper || isServerAdmin) {
+    return { allowed: true };
+  }
+
+  return { allowed: false, reason: 'Sem permissão para administrar este servidor.' };
+}

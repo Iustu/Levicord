@@ -19,6 +19,7 @@ vi.mock('../prisma', () => {
       findUnique: vi.fn(),
       update: vi.fn(),
       delete: vi.fn(),
+      count: vi.fn(),
     },
     serverBan: {
       findMany: vi.fn(),
@@ -63,6 +64,10 @@ describe('Server Routes', () => {
 
   afterAll(async () => {
     await app.close();
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
   it('should reject non-superadmin from creating a server', async () => {
@@ -237,5 +242,123 @@ describe('Server Routes', () => {
     });
     expect(postRes.statusCode).toBe(200);
     expect(postRes.json().role).toBe('ADMIN');
+  });
+
+  it('should return 400 when creating a server with an invalid name', async () => {
+    const token = app.jwt.sign({ sub: 'user-super' });
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
+      id: 'user-super',
+      email: 'joaoprf2001@gmail.com',
+      role: 'SUPERADMIN',
+    } as any);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/servers',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { name: 'x' }, // less than minLength 2
+    });
+
+    expect(response.statusCode).toBe(400);
+  });
+
+  it('should return 403 when getting details for a server without access', async () => {
+    const token = app.jwt.sign({ sub: 'user-unauthorized' });
+    vi.mocked(prisma.server.findUnique).mockResolvedValueOnce(null);
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
+      id: 'user-unauthorized',
+      email: 'user@test.com',
+      role: 'USER',
+    } as any);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/servers/srv-private',
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json().message).toBeDefined();
+  });
+
+  it('should return 400 when joining server without invite code', async () => {
+    const token = app.jwt.sign({ sub: 'user-1' });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/servers/join',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {},
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().message).toContain('obrigatório');
+  });
+
+  it('should return 400 when joining server with an expired or invalid code', async () => {
+    const token = app.jwt.sign({ sub: 'user-1' });
+    vi.mocked(prisma.serverInvite.findUnique).mockResolvedValueOnce(null);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/servers/join',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { code: 'INVALID_CODE' },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().message).toContain('inválido');
+  });
+
+  it('should return 403 when non-admin member tries to ban another member', async () => {
+    const token = app.jwt.sign({ sub: 'user-regular' });
+    vi.mocked(prisma.server.findUnique).mockResolvedValueOnce({
+      id: 'srv-1',
+      ownerId: 'owner-id',
+    } as any);
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
+      id: 'user-regular',
+      email: 'reg@test.com',
+      role: 'USER',
+    } as any);
+    vi.mocked(prisma.serverMember.findUnique).mockImplementation((async ({ where }: any) => {
+      if (where?.serverId_userId?.userId === 'user-regular') {
+        return { id: 'sm-regular', serverId: 'srv-1', userId: 'user-regular', role: 'MEMBER' } as any;
+      }
+      if (where?.serverId_userId?.userId === 'target-user') {
+        return { id: 'sm-target', serverId: 'srv-1', userId: 'target-user', role: 'MEMBER' } as any;
+      }
+      return null;
+    }) as any);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/servers/srv-1/members/target-user/ban',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { reason: 'Teste' },
+    });
+
+    expect(response.statusCode).toBe(403);
+  });
+
+  it('should return access status correctly for user', async () => {
+    const token = app.jwt.sign({ sub: 'user-member' });
+    // isSuperAdmin check
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
+      id: 'user-member',
+      email: 'member@test.com',
+      role: 'USER',
+    } as any);
+    // serverMember count check
+    vi.mocked(prisma.serverMember.count).mockResolvedValueOnce(1);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/servers/access-status',
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ hasAccess: true });
   });
 });

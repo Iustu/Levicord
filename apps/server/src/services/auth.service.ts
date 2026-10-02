@@ -92,6 +92,15 @@ export async function isSuperAdmin(userId: string, prisma: PrismaClient = defaul
   return result;
 }
 
+export async function invalidateAdminCache(userId: string, redis: Redis = defaultRedis) {
+  if (redis && typeof redis.del === 'function') {
+    await Promise.all([
+      redis.del(`admin:${userId}`),
+      redis.del(`superadmin:${userId}`),
+    ]);
+  }
+}
+
 export async function updateUserProfile(
   userId: string,
   data: { displayName?: string; avatarUrl?: string | null },

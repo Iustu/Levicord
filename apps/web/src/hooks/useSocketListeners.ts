@@ -18,7 +18,6 @@ export interface SocketListenerActions {
  */
 export function useSocketListeners(socket: Socket | null, actions?: SocketListenerActions) {
   const storeAddMessage = useChatStore((state) => state.addMessage);
-  const currentUserId = useChatStore((state) => state.currentUserId);
 
   const addMessage = actions?.addMessage ?? storeAddMessage;
   const addDm = actions?.addDm ?? ((dm, otherId) => useChatStore.getState().addDm(dm, otherId));
@@ -65,5 +64,5 @@ export function useSocketListeners(socket: Socket | null, actions?: SocketListen
       socket.off('user_status', handleUserStatus);
       socket.off('message_deleted', handleMessageDeleted);
     };
-  }, [socket, addMessage, addDm, getUserId, setUserStatus, currentUserId]);
+  }, [socket, addMessage, addDm, getUserId, setUserStatus]);
 }

@@ -80,7 +80,7 @@ export const JoinServerModal: React.FC<JoinServerModalProps> = ({
             </p>
 
             {error && (
-              <div className="create-channel-error">
+              <div className="create-channel-error" role="alert">
                 <AlertCircle size={16} />
                 <span>{error}</span>
               </div>

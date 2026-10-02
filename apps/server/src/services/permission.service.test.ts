@@ -6,6 +6,7 @@ import {
   canModerateMember,
   canDeleteMessage,
   canCreateInvite,
+  canManageServer,
   ROOT_SUPERADMIN_EMAIL,
 } from './permission.service';
 
@@ -313,4 +314,50 @@ describe('Permission Service', () => {
       expect(result.allowed).toBe(true);
     });
   });
+
+  describe('canManageServer', () => {
+    it('allows root superadmin', () => {
+      const result = canManageServer(rootActor, server);
+      expect(result.allowed).toBe(true);
+    });
+
+    it('allows global superadmin', () => {
+      const result = canManageServer(superAdminA, server);
+      expect(result.allowed).toBe(true);
+    });
+
+    it('allows server owner even if regular USER globally', () => {
+      const ownerActor = {
+        id: 'owner-id',
+        email: 'owner@example.com',
+        role: 'USER' as const,
+      };
+      const result = canManageServer(ownerActor, server);
+      expect(result.allowed).toBe(true);
+    });
+
+    it('allows server admin member', () => {
+      const adminActor = {
+        id: 'mod-1',
+        email: 'mod@example.com',
+        role: 'USER' as const,
+        serverRole: 'ADMIN' as const,
+      };
+      const result = canManageServer(adminActor, server);
+      expect(result.allowed).toBe(true);
+    });
+
+    it('forbids regular member without admin privileges', () => {
+      const regularMember = {
+        id: 'member-1',
+        email: 'member@example.com',
+        role: 'USER' as const,
+        serverRole: 'MEMBER' as const,
+      };
+      const result = canManageServer(regularMember, server);
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain('Sem permissão para administrar este servidor');
+    });
+  });
 });
+

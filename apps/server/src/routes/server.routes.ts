@@ -379,11 +379,16 @@ export default async function serverRoutes(fastify: FastifyInstance) {
   /**
    * View audit logs of server
    */
-  fastify.get<{ Params: { serverId: string } }>('/:serverId/audit-logs', async (request, reply) => {
+  fastify.get<{
+    Params: { serverId: string };
+    Querystring: { limit?: number; cursor?: string };
+  }>('/:serverId/audit-logs', async (request, reply) => {
     try {
       const userId = getAuthUserId(request);
       const { serverId } = request.params;
-      return await getServerAuditLogs(serverId, userId);
+      const limit = Math.min(Number(request.query.limit ?? 100), 200);
+      const cursor = request.query.cursor;
+      return await getServerAuditLogs(serverId, userId, limit, cursor);
     } catch (err: any) {
       return reply.code(403).send({ message: err.message || 'Sem permissão para registros de auditoria' });
     }

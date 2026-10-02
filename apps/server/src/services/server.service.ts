@@ -5,6 +5,7 @@ import {
   canManageServerAdmin,
   canModerateMember,
   canCreateInvite,
+  canManageServer,
   isRootSuperAdmin,
   type ActorContext,
   type TargetMemberContext,
@@ -361,10 +362,11 @@ export async function unbanMember(
   if (!server) throw new Error('Servidor não encontrado.');
   if (!actorUser) throw new Error('Usuário autor não encontrado.');
 
-  const isGlobalSuper = actorUser.role === 'SUPERADMIN' || isRootSuperAdmin(actorUser.email);
-  const isServerAdmin = actorMember?.role === 'ADMIN' || actorMember?.role === 'OWNER' || actorId === server.ownerId;
-
-  if (!isGlobalSuper && !isServerAdmin) {
+  const perm = canManageServer(
+    { id: actorUser.id, email: actorUser.email, role: actorUser.role, serverRole: actorMember?.role ?? null },
+    { id: server.id, ownerId: server.ownerId }
+  );
+  if (!perm.allowed) {
     throw new Error('Sem permissão para desbanir membros deste servidor.');
   }
 
@@ -398,10 +400,11 @@ export async function getServerBans(
   if (!server) throw new Error('Servidor não encontrado.');
   if (!actorUser) throw new Error('Usuário autor não encontrado.');
 
-  const isGlobalSuper = actorUser.role === 'SUPERADMIN' || isRootSuperAdmin(actorUser.email);
-  const isServerAdmin = actorMember?.role === 'ADMIN' || actorMember?.role === 'OWNER' || actorId === server.ownerId;
-
-  if (!isGlobalSuper && !isServerAdmin) {
+  const perm = canManageServer(
+    { id: actorUser.id, email: actorUser.email, role: actorUser.role, serverRole: actorMember?.role ?? null },
+    { id: server.id, ownerId: server.ownerId }
+  );
+  if (!perm.allowed) {
     throw new Error('Sem permissão para visualizar banimentos deste servidor.');
   }
 
@@ -497,10 +500,11 @@ export async function unmuteMember(
   if (!server) throw new Error('Servidor não encontrado.');
   if (!actorUser) throw new Error('Usuário autor não encontrado.');
 
-  const isGlobalSuper = actorUser.role === 'SUPERADMIN' || isRootSuperAdmin(actorUser.email);
-  const isServerAdmin = actorMember?.role === 'ADMIN' || actorMember?.role === 'OWNER' || actorId === server.ownerId;
-
-  if (!isGlobalSuper && !isServerAdmin) {
+  const perm = canManageServer(
+    { id: actorUser.id, email: actorUser.email, role: actorUser.role, serverRole: actorMember?.role ?? null },
+    { id: server.id, ownerId: server.ownerId }
+  );
+  if (!perm.allowed) {
     throw new Error('Sem permissão para desmutar membros.');
   }
 
@@ -598,10 +602,11 @@ export async function toggleServerMemberInvites(
   if (!server) throw new Error('Servidor não encontrado.');
   if (!actorUser) throw new Error('Usuário autor não encontrado.');
 
-  const isGlobalSuper = actorUser.role === 'SUPERADMIN' || isRootSuperAdmin(actorUser.email);
-  const isServerAdmin = member?.role === 'ADMIN' || member?.role === 'OWNER' || actorId === server.ownerId;
-
-  if (!isGlobalSuper && !isServerAdmin) {
+  const perm = canManageServer(
+    { id: actorUser.id, email: actorUser.email, role: actorUser.role, serverRole: member?.role ?? null },
+    { id: server.id, ownerId: server.ownerId }
+  );
+  if (!perm.allowed) {
     throw new Error('Sem permissão para alterar configurações de convite do servidor.');
   }
 
@@ -640,10 +645,11 @@ export async function setMemberCanInvite(
   if (!actorUser) throw new Error('Usuário autor não encontrado.');
   if (!targetMember) throw new Error('Membro alvo não encontrado.');
 
-  const isGlobalSuper = actorUser.role === 'SUPERADMIN' || isRootSuperAdmin(actorUser.email);
-  const isServerAdmin = member?.role === 'ADMIN' || member?.role === 'OWNER' || actorId === server.ownerId;
-
-  if (!isGlobalSuper && !isServerAdmin) {
+  const perm = canManageServer(
+    { id: actorUser.id, email: actorUser.email, role: actorUser.role, serverRole: member?.role ?? null },
+    { id: server.id, ownerId: server.ownerId }
+  );
+  if (!perm.allowed) {
     throw new Error('Sem permissão para alterar permissões de convite deste membro.');
   }
 
@@ -801,6 +807,8 @@ export async function createServerChannel(
 export async function getServerAuditLogs(
   serverId: string,
   actorId: string,
+  limit = 100,
+  cursor?: string,
   prisma: PrismaClient = defaultPrisma,
 ) {
   const [actorUser, actorMember, server] = await Promise.all([
@@ -812,21 +820,31 @@ export async function getServerAuditLogs(
   if (!server) throw new Error('Servidor não encontrado.');
   if (!actorUser) throw new Error('Usuário autor não encontrado.');
 
-  const isGlobalSuper = actorUser.role === 'SUPERADMIN' || isRootSuperAdmin(actorUser.email);
-  const isServerAdmin = actorMember?.role === 'ADMIN' || actorMember?.role === 'OWNER' || actorId === server.ownerId;
-
-  if (!isGlobalSuper && !isServerAdmin) {
+  const perm = canManageServer(
+    { id: actorUser.id, email: actorUser.email, role: actorUser.role, serverRole: actorMember?.role ?? null },
+    { id: server.id, ownerId: server.ownerId }
+  );
+  if (!perm.allowed) {
     throw new Error('Sem permissão para visualizar o registro de auditoria.');
   }
 
-  return prisma.auditLog.findMany({
+  const logs = await prisma.auditLog.findMany({
     where: { serverId },
     include: {
       actor: {
         select: { id: true, displayName: true, email: true, avatarUrl: true },
       },
     },
-    orderBy: { createdAt: 'desc' },
-    take: 100,
+    take: limit + 1,
+    ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
   });
+
+  const hasMore = logs.length > limit;
+  const page = hasMore ? logs.slice(0, limit) : logs;
+
+  return {
+    items: page,
+    nextCursor: hasMore ? page[page.length - 1].id : null,
+  };
 }

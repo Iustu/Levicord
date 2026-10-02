@@ -11,23 +11,9 @@ export async function getChannels(
   isUserAdmin: boolean,
   limit = 100,
   offset = 0,
-  serverIdOrPrisma?: string | null | PrismaClient,
-  prismaClient?: PrismaClient
+  serverId?: string | null,
+  prisma: PrismaClient = defaultPrisma
 ) {
-  let serverId: string | null | undefined = null;
-  let prisma: PrismaClient = defaultPrisma;
-
-  if (serverIdOrPrisma === 'all') {
-    serverId = undefined;
-    prisma = prismaClient || defaultPrisma;
-  } else if (typeof serverIdOrPrisma === 'string' || serverIdOrPrisma === null) {
-    serverId = serverIdOrPrisma;
-    prisma = prismaClient || defaultPrisma;
-  } else if (serverIdOrPrisma && typeof serverIdOrPrisma === 'object') {
-    prisma = serverIdOrPrisma as PrismaClient;
-    serverId = undefined;
-  }
-
   let where: Prisma.ChannelWhereInput | undefined = undefined;
   if (serverId !== undefined) {
     where = {
@@ -63,7 +49,7 @@ export async function canAccessChannel(channelId: string, userId: string, isUser
     include: { members: { where: { userId } } }
   });
   if (!channel) return false;
-  if (channel.serverId && prisma.serverMember?.findUnique) {
+  if (channel.serverId) {
     const member = await prisma.serverMember.findUnique({
       where: { serverId_userId: { serverId: channel.serverId, userId } }
     });

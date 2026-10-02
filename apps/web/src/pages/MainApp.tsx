@@ -17,6 +17,8 @@ import { ServerInviteModal } from '../components/ServerInviteModal';
 import { SuperAdminModal } from '../components/SuperAdminModal';
 import { EditProfileModal } from '../components/EditProfileModal';
 import { LogoutModal } from '../components/LogoutModal';
+import { ConfirmModal } from '../components/ConfirmModal';
+import { GatekeeperScreen } from '../components/GatekeeperScreen';
 import { MessageList } from '../components/MessageList';
 import { ChatInput } from '../components/ChatInput';
 import { VoiceScreen } from '../components/VoiceScreen';
@@ -25,7 +27,7 @@ import { useDmCall } from '../hooks/useDmCall';
 import { IncomingCallModal } from '../components/IncomingCallModal';
 import { DmCallingScreen } from '../components/DmCallingScreen';
 import { WebRTCGrid } from '../components/WebRTCGrid';
-import { Compass, AlertCircle, ShieldAlert, LogOut, Shield } from 'lucide-react';
+import { Shield } from 'lucide-react';
 import type { Channel, Message, User, Server } from '@discord-clone/shared';
 import type { UploadedAttachment } from '../components/ChatInput';
 import './MainApp.css';
@@ -103,6 +105,7 @@ export default function MainApp() {
   const [isSuperAdminModalOpen, setIsSuperAdminModalOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
+  const [deleteMessageTargetId, setDeleteMessageTargetId] = useState<string | null>(null);
 
   const [activeVoiceChannelId, setActiveVoiceChannelId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -237,15 +240,16 @@ export default function MainApp() {
   // ── 5. Load Users (for DMs and Member resolution across channels) ──────────
   useEffect(() => {
     if (!token || hasAccess === false) return;
-    apiFetch<{ users: User[]; nextCursor: string | null }>('/api/users', token)
-      .then(({ users: fetchedUsers }) => setUsers(fetchedUsers))
+    apiFetch<any>('/api/users', token)
+      .then((data) => {
+        const fetchedUsers = Array.isArray(data) ? data : data?.users || [];
+        setUsers(fetchedUsers);
+      })
       .catch(console.error);
   }, [token, hasAccess, setUsers]);
 
   // ── Derived Permissions ────────────────────────────────────────────────────
-  const isSuperAdmin =
-    currentUser?.role === 'SUPERADMIN' ||
-    currentUser?.email?.toLowerCase() === 'joaoprf2001@gmail.com';
+  const isSuperAdmin = currentUser?.role === 'SUPERADMIN';
 
   // For server channels: ONLY a local server admin (ADMIN or OWNER of that server) can alter/manage channels.
   const isLocalServerAdmin =
@@ -259,8 +263,8 @@ export default function MainApp() {
   const isNonMemberViewingServer = Boolean(activeServerId && !activeServer?.currentUserRole);
 
   // ── Derived active items ───────────────────────────────────────────────────
-  const activeChannel = channels.find((c) => c.id === activeChannelId);
-  const activeDmUser = users.find((u) => u.id === activeDmUserId);
+  const activeChannel = (channels || []).find((c) => c.id === activeChannelId);
+  const activeDmUser = (users || []).find((u) => u.id === activeDmUserId);
   const isVoiceChannel = activeChannel?.type === 'VOICE';
   const isInCall = activeVoiceChannelId === activeChannelId;
 
@@ -354,17 +358,21 @@ export default function MainApp() {
     if (channel.type === 'VOICE') setActiveVoiceChannelId(null);
   };
 
-  const handleDeleteMessage = async (messageId: string) => {
+  const executeDeleteMessage = async (messageId: string) => {
     if (!token || !activeChannelId) return;
-    if (!window.confirm('Tem certeza que deseja excluir esta mensagem?')) return;
     try {
       markMessageDeleted(messageId);
+      setDeleteMessageTargetId(null);
       await apiFetch(`/api/channels/${activeChannelId}/messages/${messageId}`, token, {
         method: 'DELETE',
       });
     } catch (err: any) {
       console.error('Erro ao excluir mensagem:', err);
     }
+  };
+
+  const handleDeleteMessage = (messageId: string) => {
+    setDeleteMessageTargetId(messageId);
   };
 
   // ── Server Navigation & Actions ────────────────────────────────────────────
@@ -419,161 +427,57 @@ export default function MainApp() {
     }
   };
 
-  // ── 6. Render Gatekeeper Screen if Access Denied (No Invite) ───────────────
-  if (hasAccess === false) {
+  // ── 6. Render Loading Screen during Bootstrap (hasAccess === null) ─────────
+  if (hasAccess === null) {
     return (
       <div
+        role="status"
+        aria-live="polite"
         style={{
           display: 'flex',
           height: '100vh',
           width: '100%',
+          flexDirection: 'column',
           justifyContent: 'center',
           alignItems: 'center',
           backgroundColor: '#1e1f22',
           color: '#f2f3f5',
           fontFamily: "'Inter', sans-serif",
-          textAlign: 'left',
+          gap: '16px',
         }}
       >
         <div
           style={{
-            padding: '36px',
-            backgroundColor: '#2b2d31',
-            borderRadius: '12px',
-            width: '460px',
-            maxWidth: '92%',
-            boxShadow: '0 16px 40px rgba(0, 0, 0, 0.6)',
-            border: '1px solid rgba(255, 255, 255, 0.08)',
+            width: '40px',
+            height: '40px',
+            border: '3px solid rgba(255, 255, 255, 0.1)',
+            borderTopColor: '#5865F2',
+            borderRadius: '50%',
+            animation: 'spin 1s linear infinite',
           }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '20px' }}>
-            <div
-              style={{
-                width: '48px',
-                height: '48px',
-                borderRadius: '12px',
-                backgroundColor: 'rgba(237, 66, 69, 0.15)',
-                color: '#ed4245',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-              }}
-            >
-              <ShieldAlert size={28} />
-            </div>
-            <div>
-              <h2 style={{ fontSize: '20px', fontWeight: 700, margin: 0, color: '#f2f3f5' }}>
-                Acesso Restrito por Convite
-              </h2>
-              <p style={{ fontSize: '13px', color: '#949ba4', margin: '3px 0 0' }}>
-                O Levicord é uma plataforma fechada
-              </p>
-            </div>
-          </div>
-
-          <p style={{ fontSize: '14px', color: '#dbdee1', lineHeight: '1.5', marginBottom: '20px' }}>
-            O seu login com o Google foi concluído com sucesso, mas o acesso é concedido apenas a utilizadores que pertençam a um servidor através de um <strong>link de convite válido</strong>.
-          </p>
-
-          {gateError && (
-            <div
-              style={{
-                padding: '10px 14px',
-                backgroundColor: 'rgba(237, 66, 69, 0.12)',
-                border: '1px solid rgba(237, 66, 69, 0.3)',
-                borderRadius: '8px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                marginBottom: '16px',
-                color: '#ed4245',
-                fontSize: '13px',
-              }}
-            >
-              <AlertCircle size={16} />
-              <span>{gateError}</span>
-            </div>
-          )}
-
-          <form onSubmit={handleGateJoin}>
-            <div style={{ marginBottom: '18px' }}>
-              <label htmlFor="gate-code" style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#b5bac1', marginBottom: '8px', textTransform: 'uppercase' }}>
-                CÓDIGO DE CONVITE DO SERVIDOR
-              </label>
-              <input
-                id="gate-code"
-                type="text"
-                placeholder="Ex: d4f89a1c ou link de convite"
-                value={gateInviteCode}
-                onChange={(e) => setGateInviteCode(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '12px',
-                  backgroundColor: '#1e1f22',
-                  border: '1px solid #383a40',
-                  borderRadius: '6px',
-                  color: '#f2f3f5',
-                  fontSize: '14px',
-                  outline: 'none',
-                  boxSizing: 'border-box',
-                }}
-                required
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={gateLoading}
-              style={{
-                width: '100%',
-                padding: '12px',
-                backgroundColor: '#5865f2',
-                color: '#ffffff',
-                border: 'none',
-                borderRadius: '6px',
-                fontSize: '14px',
-                fontWeight: 600,
-                cursor: gateLoading ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                marginBottom: '12px',
-              }}
-            >
-              <Compass size={18} />
-              {gateLoading ? 'Validando convite...' : 'Validar Convite e Entrar'}
-            </button>
-          </form>
-
-          <button
-            type="button"
-            onClick={logout}
-            style={{
-              width: '100%',
-              padding: '10px',
-              backgroundColor: 'transparent',
-              color: '#949ba4',
-              border: 'none',
-              borderRadius: '6px',
-              fontSize: '13px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-            }}
-          >
-            <LogOut size={16} />
-            Sair da Conta Google ({currentUser?.email})
-          </button>
-        </div>
+        />
+        <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+        <p style={{ color: '#949ba4', fontSize: '14px', margin: 0 }}>Carregando Levicord...</p>
       </div>
     );
   }
 
-  // ── 7. Render Full Application Workspace ───────────────────────────────────
+  // ── 7. Render Gatekeeper Screen if Access Denied (No Invite) ───────────────
+  if (hasAccess === false) {
+    return (
+      <GatekeeperScreen
+        gateInviteCode={gateInviteCode}
+        setGateInviteCode={setGateInviteCode}
+        gateLoading={gateLoading}
+        gateError={gateError}
+        currentUserEmail={currentUser?.email}
+        onJoin={handleGateJoin}
+        onLogout={logout}
+      />
+    );
+  }
+
+  // ── 8. Render Full Application Workspace ───────────────────────────────────
   return (
     <div className="app-container">
       {/* ── Server Rail (Guild list & quick actions) ───────────────────── */}
@@ -822,6 +726,19 @@ export default function MainApp() {
         isOpen={isLogoutModalOpen}
         onClose={() => setIsLogoutModalOpen(false)}
         onConfirm={logout}
+      />
+
+      <ConfirmModal
+        isOpen={Boolean(deleteMessageTargetId)}
+        title="Excluir Mensagem"
+        message="Tem certeza que deseja excluir esta mensagem? Esta ação não pode ser desfeita."
+        confirmLabel="Excluir"
+        cancelLabel="Cancelar"
+        danger
+        onClose={() => setDeleteMessageTargetId(null)}
+        onConfirm={() => {
+          if (deleteMessageTargetId) executeDeleteMessage(deleteMessageTargetId);
+        }}
       />
 
       {/* ── Incoming Call Modal (for receiving 1-on-1 DM calls) ───────────── */}

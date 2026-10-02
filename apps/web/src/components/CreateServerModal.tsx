@@ -88,7 +88,7 @@ export const CreateServerModal: React.FC<CreateServerModalProps> = ({
             </p>
 
             {error && (
-              <div className="create-channel-error">
+              <div className="create-channel-error" role="alert">
                 <AlertCircle size={16} />
                 <span>{error}</span>
               </div>

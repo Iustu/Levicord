@@ -3,6 +3,7 @@ import type { User, ServerMember, ServerMemberRole } from '@discord-clone/shared
 import { Avatar } from './Avatar';
 import { Shield, Crown, VolumeX, Volume2, UserMinus, Ban, MailX, MailCheck, MoreVertical, X } from 'lucide-react';
 import { apiFetch } from '../lib/api';
+import { ConfirmModal } from './ConfirmModal';
 import './MembersSidebar.css';
 
 export interface MembersSidebarProps {
@@ -34,6 +35,7 @@ export const MembersSidebar: React.FC<MembersSidebarProps> = ({
   const [muteMinutes, setMuteMinutes] = useState(15);
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [kickTargetId, setKickTargetId] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -80,9 +82,8 @@ export const MembersSidebar: React.FC<MembersSidebarProps> = ({
     }
   };
 
-  const handleKick = async (targetUserId: string) => {
+  const executeKick = async (targetUserId: string) => {
     if (!serverId) return;
-    if (!window.confirm('Tem certeza que deseja expulsar este membro do servidor?')) return;
     setActionLoading(true);
     setActionError(null);
     try {
@@ -90,12 +91,17 @@ export const MembersSidebar: React.FC<MembersSidebarProps> = ({
         method: 'POST',
       });
       setSelectedMember(null);
+      setKickTargetId(null);
       onMemberActionSuccess?.();
     } catch (err: any) {
       setActionError(err.message || 'Erro ao expulsar membro');
     } finally {
       setActionLoading(false);
     }
+  };
+
+  const handleKick = (targetUserId: string) => {
+    setKickTargetId(targetUserId);
   };
 
   const handleBan = async (targetUserId: string) => {
@@ -357,6 +363,18 @@ export const MembersSidebar: React.FC<MembersSidebarProps> = ({
             </>
           )}
         </div>
+        <ConfirmModal
+          isOpen={Boolean(kickTargetId)}
+          title="Expulsar Membro"
+          message="Tem certeza que deseja expulsar este membro do servidor?"
+          confirmLabel="Expulsar"
+          cancelLabel="Cancelar"
+          danger
+          onClose={() => setKickTargetId(null)}
+          onConfirm={() => {
+            if (kickTargetId) executeKick(kickTargetId);
+          }}
+        />
       </aside>
     );
   }
@@ -438,6 +456,19 @@ export const MembersSidebar: React.FC<MembersSidebarProps> = ({
           </div>
         )}
       </div>
+
+      <ConfirmModal
+        isOpen={Boolean(kickTargetId)}
+        title="Expulsar Membro"
+        message="Tem certeza que deseja expulsar este membro do servidor?"
+        confirmLabel="Expulsar"
+        cancelLabel="Cancelar"
+        danger
+        onClose={() => setKickTargetId(null)}
+        onConfirm={() => {
+          if (kickTargetId) executeKick(kickTargetId);
+        }}
+      />
     </aside>
   );
 };

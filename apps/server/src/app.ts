@@ -7,6 +7,8 @@ import fastifyRateLimit from '@fastify/rate-limit';
 import fastifyHelmet from '@fastify/helmet';
 import fastifyMultipart from '@fastify/multipart';
 import fastifyMetrics from 'fastify-metrics';
+import fastifyStatic from '@fastify/static';
+import swaggerUiDist from 'swagger-ui-dist';
 import path from 'path';
 import authRoutes from './routes/auth.routes';
 import channelRoutes from './routes/channel.routes';
@@ -15,6 +17,7 @@ import downloadRoutes from './routes/download.routes';
 import userRoutes from './routes/user.routes';
 import adminRoutes from './routes/admin.routes';
 import serverRoutes from './routes/server.routes';
+import webrtcRoutes from './routes/webrtc.routes';
 import { prisma } from './prisma';
 import { redis } from './lib/redis';
 import { checkMinioHealth } from './lib/minio';
@@ -34,7 +37,7 @@ export function buildApp(): FastifyInstance {
   }
   // Fail fast: DATABASE_ENCRYPTION_KEY required; without it, DMs would be
   // encrypted with a public hardcoded fallback. (BSRS Cap.5 Least Privilege)
-  if (!process.env.DATABASE_ENCRYPTION_KEY && !process.env.JWT_SECRET) {
+  if (!process.env.DATABASE_ENCRYPTION_KEY) {
     throw new Error('FATAL: DATABASE_ENCRYPTION_KEY environment variable is not set. Refusing to start.');
   }
   if (isProduction && (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET)) {
@@ -134,6 +137,12 @@ export function buildApp(): FastifyInstance {
   });
 
   // OpenAPI Documentation (DMMT Cap. 1 & BSRS)
+  app.register(fastifyStatic, {
+    root: swaggerUiDist.getAbsoluteFSPath(),
+    prefix: '/api/docs/static/',
+    decorateReply: false,
+  });
+
   app.get('/api/openapi.json', async () => openApiSpec);
   app.get('/api/docs', async (_req, reply) => {
     reply.type('text/html').send(`<!DOCTYPE html>
@@ -142,11 +151,11 @@ export function buildApp(): FastifyInstance {
   <title>Levicord API Docs</title>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+  <link rel="stylesheet" href="/api/docs/static/swagger-ui.css" />
 </head>
 <body>
   <div id="swagger-ui"></div>
-  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+  <script src="/api/docs/static/swagger-ui-bundle.js"></script>
   <script>
     SwaggerUIBundle({
       url: '/api/openapi.json',
@@ -165,6 +174,7 @@ export function buildApp(): FastifyInstance {
     app.register(uploadRoutes, { prefix: `${prefix}/upload` });
     app.register(adminRoutes, { prefix: `${prefix}/admin` });
     app.register(serverRoutes, { prefix: `${prefix}/servers` });
+    app.register(webrtcRoutes, { prefix: `${prefix}/webrtc` });
   };
 
   registerApiRoutes('/api/v1');

@@ -2,6 +2,15 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { VoiceScreen } from './VoiceScreen';
 
+vi.mock('./WebRTCGrid', () => ({
+  WebRTCGrid: ({ channelId, onDisconnect }: any) => (
+    <div data-testid="webrtc-grid">
+      <span>Grid for {channelId}</span>
+      <button onClick={onDisconnect}>Desconectar</button>
+    </div>
+  ),
+}));
+
 describe('VoiceScreen', () => {
   const defaultProps = {
     channelName: 'Voz Geral',
@@ -22,6 +31,7 @@ describe('VoiceScreen', () => {
 
     fireEvent.click(joinBtn);
     expect(onJoin).toHaveBeenCalled();
+    expect(screen.getByText(/Conectando.../i)).toBeInTheDocument();
   });
 
   it('disables join button and shows restriction notice when user is SuperAdmin in a server channel', () => {
@@ -44,5 +54,22 @@ describe('VoiceScreen', () => {
 
     fireEvent.click(joinBtn);
     expect(onJoin).not.toHaveBeenCalled();
+  });
+
+  it('renders WebRTCGrid when isInCall is true and passes onDisconnect', () => {
+    const onDisconnect = vi.fn();
+    render(
+      <VoiceScreen
+        {...defaultProps}
+        isInCall={true}
+        onDisconnect={onDisconnect}
+      />
+    );
+
+    expect(screen.getByTestId('webrtc-grid')).toBeInTheDocument();
+    expect(screen.getByText('Grid for ch-voice-1')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Desconectar'));
+    expect(onDisconnect).toHaveBeenCalled();
   });
 });
