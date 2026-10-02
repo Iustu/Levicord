@@ -341,7 +341,7 @@ export default function MainApp() {
 
     if (activeChannelId === channelId) {
       const nextChannel = remaining.find((c) => c.type === 'TEXT') || remaining[0];
-      setActiveChannelId(nextChannel ? nextChannel.id : null);
+      setActiveChannelId(nextChannel ? nextChannel.id : '');
     }
 
     if (activeVoiceChannelId === channelId) {

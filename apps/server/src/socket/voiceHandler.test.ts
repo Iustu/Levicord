@@ -252,7 +252,7 @@ describe('Voice Handler (WebRTC signaling & access control)', () => {
     });
 
     it('should reject third-party users from joining someone else DM call', async () => {
-      const intruderSocket = { ...mockSocket, emit: vi.fn() };
+      const intruderSocket: any = { ...mockSocket, emit: vi.fn() };
       const intruderDeps: VoiceHandlerDeps = {
         prisma: mockPrisma,
         canAccessChannel: mockCanAccessChannel,

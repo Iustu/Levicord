@@ -204,12 +204,12 @@ describe('Server Routes', () => {
       ownerId: 'user-owner',
     } as any);
 
-    vi.mocked(prisma.serverMember.findUnique).mockImplementation(async ({ where }: any) => {
+    vi.mocked(prisma.serverMember.findUnique).mockImplementation((async ({ where }: any) => {
       if (where?.serverId_userId?.userId === 'user-owner') {
         return { id: 'sm-owner', serverId: 'srv-1', userId: 'user-owner', role: 'OWNER' } as any;
       }
       return { id: 'sm-target', serverId: 'srv-1', userId: 'user-target', role: 'MEMBER' } as any;
-    });
+    }) as any);
 
     vi.mocked(prisma.serverMember.update).mockResolvedValue({
       id: 'sm-target',
