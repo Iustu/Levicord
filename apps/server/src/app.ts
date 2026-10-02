@@ -74,6 +74,21 @@ export function buildApp(): FastifyInstance {
     credentials: true,
   });
 
+  // Gracefully handle empty bodies when Content-Type: application/json is present
+  app.removeContentTypeParser('application/json');
+  app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body: string, done) => {
+    if (!body || body.trim() === '') {
+      done(null, {});
+      return;
+    }
+    try {
+      done(null, JSON.parse(body));
+    } catch (err: any) {
+      err.statusCode = 400;
+      done(err, undefined);
+    }
+  });
+
   app.register(fastifyCookie);
   app.register(fastifyMultipart);
   

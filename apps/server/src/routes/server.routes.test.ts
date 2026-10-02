@@ -145,4 +145,97 @@ describe('Server Routes', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toHaveLength(1);
   });
+
+  it('should accept POST /api/servers/:serverId/invites with empty body when content-type is application/json', async () => {
+    const token = app.jwt.sign({ sub: 'user-owner' });
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
+      id: 'user-owner',
+      email: 'owner@test.com',
+      role: 'USER',
+    } as any);
+
+    vi.mocked(prisma.server.findUnique).mockResolvedValueOnce({
+      id: 'srv-1',
+      ownerId: 'user-owner',
+      allowMemberInvites: true,
+    } as any);
+
+    vi.mocked(prisma.serverMember.findUnique).mockResolvedValueOnce({
+      id: 'sm-owner',
+      serverId: 'srv-1',
+      userId: 'user-owner',
+      role: 'OWNER',
+    } as any);
+
+    vi.mocked(prisma.serverInvite.create).mockResolvedValueOnce({
+      id: 'inv-1',
+      code: 'abc12345',
+      serverId: 'srv-1',
+      createdById: 'user-owner',
+      maxUses: null,
+      expiresAt: new Date(Date.now() + 24 * 3600 * 1000),
+      createdAt: new Date(),
+    } as any);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/servers/srv-1/invites',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
+      payload: '',
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json().code).toBe('abc12345');
+  });
+
+  it('should allow updating member role via both PUT and POST', async () => {
+    const token = app.jwt.sign({ sub: 'user-owner' });
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      id: 'user-owner',
+      email: 'owner@test.com',
+      role: 'USER',
+    } as any);
+
+    vi.mocked(prisma.server.findUnique).mockResolvedValue({
+      id: 'srv-1',
+      ownerId: 'user-owner',
+    } as any);
+
+    vi.mocked(prisma.serverMember.findUnique).mockImplementation(async ({ where }: any) => {
+      if (where?.serverId_userId?.userId === 'user-owner') {
+        return { id: 'sm-owner', serverId: 'srv-1', userId: 'user-owner', role: 'OWNER' } as any;
+      }
+      return { id: 'sm-target', serverId: 'srv-1', userId: 'user-target', role: 'MEMBER' } as any;
+    });
+
+    vi.mocked(prisma.serverMember.update).mockResolvedValue({
+      id: 'sm-target',
+      serverId: 'srv-1',
+      userId: 'user-target',
+      role: 'ADMIN',
+    } as any);
+
+    // Test PUT
+    const putRes = await app.inject({
+      method: 'PUT',
+      url: '/api/servers/srv-1/members/user-target/role',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { role: 'ADMIN' },
+    });
+    expect(putRes.statusCode).toBe(200);
+    expect(putRes.json().role).toBe('ADMIN');
+
+    // Test POST
+    const postRes = await app.inject({
+      method: 'POST',
+      url: '/api/servers/srv-1/members/user-target/role',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { role: 'ADMIN' },
+    });
+    expect(postRes.statusCode).toBe(200);
+    expect(postRes.json().role).toBe('ADMIN');
+  });
 });

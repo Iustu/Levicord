@@ -1,5 +1,5 @@
 import type { RefObject } from 'react';
-import { Hash, Plus, Pencil, Volume2, Settings, LogOut, UserPlus, Server as ServerIcon } from 'lucide-react';
+import { Hash, Plus, Pencil, Trash2, Volume2, Settings, LogOut, UserPlus, Server as ServerIcon } from 'lucide-react';
 import { Avatar } from './Avatar';
 import type { Channel, User, Server, ServerMemberRole } from '@discord-clone/shared';
 
@@ -13,6 +13,7 @@ export interface SidebarProps {
   onSelectChannel: (channel: Channel) => void;
   onOpenCreateChannel: () => void;
   onEditChannel: (channel: Channel) => void;
+  onDeleteChannel?: (channelId: string) => void;
   createChannelBtnRef: RefObject<HTMLButtonElement | null>;
   channelsError: string | null;
   onRetryChannels: () => void;
@@ -48,7 +49,8 @@ export function Sidebar({
   onOpenLogout,
   activeServer,
   onOpenInviteModal,
-  canCreateChannel = true,
+  canCreateChannel = false,
+  onDeleteChannel,
 }: SidebarProps) {
   return (
     <>
@@ -94,28 +96,31 @@ export function Sidebar({
           )}
         </div>
 
-        <div className="view-toggle">
-          <button
-            type="button"
-            className={`view-toggle-btn ${viewMode === 'channels' ? 'active' : ''}`}
-            onClick={() => onViewModeChange('channels')}
-          >
-            {activeServer ? 'Canais do Servidor' : 'Canais'}
-          </button>
-          <button
-            type="button"
-            className={`view-toggle-btn ${viewMode === 'dms' ? 'active' : ''}`}
-            onClick={() => onViewModeChange('dms')}
-          >
-            Mensagens Diretas
-          </button>
-        </div>
+        {/* ── View Toggle (Home only: Canais Globais vs Mensagens Diretas) ── */}
+        {!activeServer && (
+          <div className="view-toggle">
+            <button
+              type="button"
+              className={`view-toggle-btn ${viewMode === 'channels' ? 'active' : ''}`}
+              onClick={() => onViewModeChange('channels')}
+            >
+              Canais Globais
+            </button>
+            <button
+              type="button"
+              className={`view-toggle-btn ${viewMode === 'dms' ? 'active' : ''}`}
+              onClick={() => onViewModeChange('dms')}
+            >
+              Mensagens Diretas
+            </button>
+          </div>
+        )}
 
         <div className="channels-section">
-          {viewMode === 'channels' ? (
+          {viewMode === 'channels' || activeServer ? (
             <>
               <div className="channels-header">
-                <span>{activeServer ? 'CANAIS DO SERVIDOR' : 'CANAIS'}</span>
+                <span>{activeServer ? 'CANAIS DO SERVIDOR' : 'CANAIS GLOBAIS'}</span>
                 {canCreateChannel && (
                   <button
                     ref={createChannelBtnRef}
@@ -154,17 +159,36 @@ export function Sidebar({
                       ? <Volume2 size={20} className="channel-icon" aria-hidden="true" />
                       : <Hash size={20} className="channel-icon" aria-hidden="true" />}
                     <span>{channel.name}</span>
-                    <button
-                      className="channel-edit-btn"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onEditChannel(channel);
-                      }}
-                      title="Editar canal"
-                      aria-label={`Editar canal ${channel.name}`}
-                    >
-                      <Pencil size={14} />
-                    </button>
+                    {canCreateChannel && (
+                      <div className="channel-actions" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                        <button
+                          className="channel-edit-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onEditChannel(channel);
+                          }}
+                          title="Editar canal"
+                          aria-label={`Editar canal ${channel.name}`}
+                        >
+                          <Pencil size={14} />
+                        </button>
+                        {onDeleteChannel && (
+                          <button
+                            className="channel-edit-btn channel-delete-btn"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (window.confirm(`Tem certeza que deseja excluir o canal "#${channel.name}"? Esta ação não pode ser desfeita.`)) {
+                                onDeleteChannel(channel.id);
+                              }
+                            }}
+                            title="Excluir canal"
+                            aria-label={`Excluir canal ${channel.name}`}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>

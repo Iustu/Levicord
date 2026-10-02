@@ -9,6 +9,7 @@ describe('Voice Handler (WebRTC signaling & access control)', () => {
   let mockPrisma: PrismaClient;
   let mockCanAccessChannel: any;
   let mockIsAdmin: any;
+  let mockIsSuperAdmin: any;
   let eventHandlers: Record<string, Function>;
   let emittedToRoom: Array<{ room: string; event: string; data: any }>;
   let emittedToSocket: Array<{ event: string; data: any }>;
@@ -48,6 +49,11 @@ describe('Voice Handler (WebRTC signaling & access control)', () => {
     } as unknown as Socket;
 
     mockIo = {
+      to: vi.fn((room: string) => ({
+        emit: (event: string, data: any) => {
+          emittedToRoom.push({ room, event, data });
+        },
+      })),
       sockets: {
         adapter: {
           rooms: new Map([
@@ -65,11 +71,13 @@ describe('Voice Handler (WebRTC signaling & access control)', () => {
 
     mockCanAccessChannel = vi.fn();
     mockIsAdmin = vi.fn().mockResolvedValue(false);
+    mockIsSuperAdmin = vi.fn().mockResolvedValue(false);
 
     const deps: VoiceHandlerDeps = {
       prisma: mockPrisma,
       canAccessChannel: mockCanAccessChannel,
       isAdmin: mockIsAdmin,
+      isSuperAdmin: mockIsSuperAdmin,
     };
 
     registerVoiceHandler(mockIo, mockSocket, userId, undefined, deps);
@@ -106,6 +114,23 @@ describe('Voice Handler (WebRTC signaling & access control)', () => {
 
       expect(mockSocket.emit).toHaveBeenCalledWith('error', {
         message: 'Channel not found or is not a voice channel',
+      });
+      expect(roomsJoined.size).toBe(0);
+    });
+
+    it('should reject if user is a SuperAdmin attempting to join a server voice channel', async () => {
+      mockIsSuperAdmin.mockResolvedValue(true);
+      (mockPrisma.channel.findUnique as any).mockResolvedValue({
+        id: validVoiceChannelId,
+        type: 'VOICE',
+        isPrivate: false,
+        serverId: 'srv-1',
+      });
+
+      await eventHandlers['join_voice'](validVoiceChannelId);
+
+      expect(mockSocket.emit).toHaveBeenCalledWith('error', {
+        message: 'SuperAdmins não têm permissão para entrar em canais de voz de servidores.',
       });
       expect(roomsJoined.size).toBe(0);
     });
@@ -206,6 +231,90 @@ describe('Voice Handler (WebRTC signaling & access control)', () => {
 
       expect(mockSocket.leave).not.toHaveBeenCalled();
       expect(emittedToRoom.length).toBe(0);
+    });
+  });
+
+  describe('1-on-1 DM calls', () => {
+    const userA = 'user-voice-1';
+    const userB = 'user-voice-2';
+    const dmRoomId = `dm_${userA}_${userB}`;
+
+    it('should allow participants of the DM to join voice', async () => {
+      await eventHandlers['join_voice'](dmRoomId);
+
+      expect(mockSocket.join).toHaveBeenCalledWith(`voice_${dmRoomId}`);
+      expect(mockSocket.data.voiceChannelId).toBe(dmRoomId);
+      expect(emittedToRoom).toContainEqual({
+        room: `voice_${dmRoomId}`,
+        event: 'user_joined_voice',
+        data: { userId: userA, socketId: 'socket-voice-1' },
+      });
+    });
+
+    it('should reject third-party users from joining someone else DM call', async () => {
+      const intruderSocket = { ...mockSocket, emit: vi.fn() };
+      const intruderDeps: VoiceHandlerDeps = {
+        prisma: mockPrisma,
+        canAccessChannel: mockCanAccessChannel,
+        isAdmin: mockIsAdmin,
+      };
+      const intruderHandlers: Record<string, Function> = {};
+      intruderSocket.on = vi.fn((event: string, handler: Function) => {
+        intruderHandlers[event] = handler;
+      });
+
+      registerVoiceHandler(mockIo, intruderSocket as any, 'intruder-id', undefined, intruderDeps);
+
+      await intruderHandlers['join_voice'](dmRoomId);
+
+      expect(intruderSocket.emit).toHaveBeenCalledWith('error', {
+        message: 'Access denied to this DM call',
+      });
+    });
+
+    it('should handle dm_call_start and relay dm_call_incoming', async () => {
+      await eventHandlers['dm_call_start']({ targetUserId: userB, isVideo: true });
+
+      expect(mockIo.to).toHaveBeenCalledWith(userB);
+      expect(emittedToRoom).toContainEqual(
+        expect.objectContaining({
+          room: userB,
+          event: 'dm_call_incoming',
+          data: expect.objectContaining({
+            roomId: dmRoomId,
+            isVideo: true,
+          }),
+        })
+      );
+    });
+
+    it('should relay dm_call_accept, dm_call_reject, and dm_call_end', () => {
+      eventHandlers['dm_call_accept']({ callerId: userB, roomId: dmRoomId });
+      expect(emittedToRoom).toContainEqual(
+        expect.objectContaining({
+          room: userB,
+          event: 'dm_call_accepted',
+          data: { fromUserId: userA, roomId: dmRoomId },
+        })
+      );
+
+      eventHandlers['dm_call_reject']({ callerId: userB, roomId: dmRoomId });
+      expect(emittedToRoom).toContainEqual(
+        expect.objectContaining({
+          room: userB,
+          event: 'dm_call_rejected',
+          data: { fromUserId: userA, roomId: dmRoomId },
+        })
+      );
+
+      eventHandlers['dm_call_end']({ targetUserId: userB, roomId: dmRoomId });
+      expect(emittedToRoom).toContainEqual(
+        expect.objectContaining({
+          room: userB,
+          event: 'dm_call_ended',
+          data: { fromUserId: userA, roomId: dmRoomId },
+        })
+      );
     });
   });
 });

@@ -5,6 +5,7 @@ interface CreateChannelModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (name: string, description: string, type: 'TEXT' | 'VOICE') => Promise<void>;
+  onDelete?: () => Promise<void> | void;
   initialName?: string;
   initialDescription?: string;
   initialType?: 'TEXT' | 'VOICE';
@@ -13,7 +14,7 @@ interface CreateChannelModalProps {
   triggerRef?: React.RefObject<HTMLElement | null>;
 }
 
-export function CreateChannelModal({ isOpen, onClose, onSubmit, initialName = '', initialDescription = '', initialType = 'TEXT', title = 'Criar Canal', submitLabel = 'Criar Canal', triggerRef }: CreateChannelModalProps) {
+export function CreateChannelModal({ isOpen, onClose, onSubmit, onDelete, initialName = '', initialDescription = '', initialType = 'TEXT', title = 'Criar Canal', submitLabel = 'Criar Canal', triggerRef }: CreateChannelModalProps) {
   const [name, setName] = useState(initialName);
   const [description, setDescription] = useState(initialDescription);
   const [type, setType] = useState<'TEXT' | 'VOICE'>(initialType);
@@ -142,6 +143,28 @@ export function CreateChannelModal({ isOpen, onClose, onSubmit, initialName = ''
           {error && <p className="modal-error" role="alert">{error}</p>}
 
           <div className="modal-actions">
+            {onDelete && (
+              <button
+                type="button"
+                className="btn-delete-channel"
+                onClick={async () => {
+                  if (window.confirm(`Tem certeza que deseja excluir o canal "#${initialName}"? Esta ação não pode ser desfeita.`)) {
+                    setIsLoading(true);
+                    try {
+                      await onDelete();
+                      onClose();
+                    } catch (err: unknown) {
+                      setError(err instanceof Error ? err.message : 'Falha ao excluir canal.');
+                    } finally {
+                      setIsLoading(false);
+                    }
+                  }
+                }}
+                disabled={isLoading}
+              >
+                Excluir Canal
+              </button>
+            )}
             <button type="button" className="btn-cancel" onClick={handleClose} disabled={isLoading}>
               Cancelar
             </button>

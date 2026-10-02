@@ -13,8 +13,33 @@ do zero ao funcionamento em produção, com um único script automático.
 | 2 | Clonar o repositório |
 | 3 | Configurar Google OAuth |
 | 4 | Configurar Cloudflare Tunnel |
-| 5 | Executar `bash setup.sh` — faz tudo automaticamente |
+| 5 | Executar `setup.ps1` no Windows ou `bash setup.sh` no Linux — faz tudo automaticamente |
 | 6 | Verificar saúde dos containers |
+
+### Windows com Docker Desktop
+
+Se o projeto estiver no Windows e o Docker Desktop estiver instalado, não use
+`bash setup.sh` a menos que exista uma distribuição Ubuntu no WSL. O comando
+`bash` do Windows tenta usar o WSL; a distribuição interna `docker-desktop` não
+possui `/bin/bash`, causando o erro `execvpe(/bin/bash) failed`.
+
+Na raiz do projeto, abra o PowerShell e execute:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\setup.ps1
+```
+
+O `setup.ps1` cria e atualiza o `.env`, gera os segredos, constrói as imagens,
+sobe todos os containers, aguarda Postgres/Redis/MinIO e aplica as migrations.
+O Docker Desktop deve estar aberto antes da execução. Para atualizações futuras:
+
+```powershell
+docker compose up -d --build
+docker compose exec server pnpm exec prisma migrate deploy
+```
+
+Em um servidor Ubuntu/WSL com Bash instalado, o `setup.sh` continua disponível.
 
 ---
 

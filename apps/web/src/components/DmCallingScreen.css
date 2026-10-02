@@ -1,0 +1,79 @@
+.dm-calling-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+  background: radial-gradient(circle at center, rgba(88, 101, 242, 0.12) 0%, rgba(18, 19, 22, 0.95) 70%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  min-height: 280px;
+  position: relative;
+  overflow: hidden;
+}
+
+.dm-calling-avatar-box {
+  position: relative;
+  margin-bottom: 20px;
+}
+
+.dm-calling-ripple {
+  position: absolute;
+  top: -12px;
+  left: -12px;
+  right: -12px;
+  bottom: -12px;
+  border-radius: 50%;
+  border: 2px solid rgba(88, 101, 242, 0.6);
+  animation: callingRipple 2s cubic-bezier(0.24, 0, 0.38, 1) infinite;
+  pointer-events: none;
+}
+
+.dm-calling-ripple.delay {
+  animation-delay: 0.6s;
+}
+
+@keyframes callingRipple {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+.dm-calling-status h3 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: #f2f3f5;
+}
+
+.dm-calling-status p {
+  margin: 6px 0 24px 0;
+  font-size: 14px;
+  color: #949ba4;
+}
+
+.dm-calling-cancel-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 22px;
+  background: #da373c;
+  color: #ffffff;
+  border: none;
+  border-radius: 24px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 14px rgba(218, 55, 60, 0.4);
+}
+
+.dm-calling-cancel-btn:hover {
+  background: #c03135;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(218, 55, 60, 0.55);
+}

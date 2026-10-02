@@ -51,7 +51,9 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
   const { socket } = useSocket();
   
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [localScreenStream, setLocalScreenStream] = useState<MediaStream | null>(null);
   const [remoteStreams, setRemoteStreams] = useState<Record<string, { stream: MediaStream, userId: string }>>({});
+  const [remoteScreenStreams, setRemoteScreenStreams] = useState<Record<string, MediaStream>>({});
   const peersRef = useRef<Record<string, RTCPeerConnection>>({});
   const localStreamRef = useRef<MediaStream | null>(null);
 
@@ -71,9 +73,11 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
 
   // Ref para a faixa de tela activa — permite parar e remover sem stale closure
   const screenTrackRef = useRef<MediaStreamTrack | null>(null);
+  const screenAudioTrackRef = useRef<MediaStreamTrack | null>(null);
 
-  // OPT-04: Rastreio direto dos RTCRtpSender de tela por socketId (evita inspeção frágil de label)
+  // OPT-04: Rastreio direto dos RTCRtpSender de tela (vídeo e áudio) por socketId
   const screenSendersRef = useRef<Map<string, RTCRtpSender>>(new Map());
+  const screenAudioSendersRef = useRef<Map<string, RTCRtpSender>>(new Map());
 
   // ────────────────────────────────────────────────────────────────────────────
   // Init: obter stream local e entrar no canal
@@ -119,12 +123,19 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
         screenTrackRef.current.stop();
         screenTrackRef.current = null;
       }
+      if (screenAudioTrackRef.current) {
+        screenAudioTrackRef.current.stop();
+        screenAudioTrackRef.current = null;
+      }
       Object.values(peersRef.current).forEach(peer => peer.close());
       peersRef.current = {};
       iceCandidateQueues.current = {};
       screenSendersRef.current.clear();
+      screenAudioSendersRef.current.clear();
       setRemoteStreams({});
+      setRemoteScreenStreams({});
       setLocalStream(null);
+      setLocalScreenStream(null);
       setIsScreenSharing(false);
       setScreenSharerSocketId(null);
     };
@@ -144,6 +155,12 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
      * (backlog_playbook.md — Tarefa 1.1)
      */
     const createPeer = (targetSocketId: string, targetUserId: string) => {
+      // Reutiliza peer existente se ainda estiver aberto
+      const existing = peersRef.current[targetSocketId];
+      if (existing && existing.connectionState !== 'closed') {
+        return existing;
+      }
+
       // OPT-13 — Configuração de STUN + TURN server para NAT simétrico
       const peer = new RTCPeerConnection({
         iceServers: [
@@ -157,17 +174,26 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
         ]
       });
 
+      let primaryStreamId: string | null = null;
+
       if (localStreamRef.current && localStreamRef.current.getTracks().length > 0) {
         localStreamRef.current.getTracks().forEach(track => {
           peer.addTrack(track, localStreamRef.current!);
         });
       }
 
-      // Se transmissão de tela estiver ativa, adiciona a track ao novo peer e guarda o sender
+      // Se transmissão de tela estiver ativa, adiciona as faixas (vídeo e áudio de sistema) ao novo peer
       if (screenTrackRef.current) {
         const screenStream = new MediaStream([screenTrackRef.current]);
+        if (screenAudioTrackRef.current) {
+          screenStream.addTrack(screenAudioTrackRef.current);
+        }
         const sender = peer.addTrack(screenTrackRef.current, screenStream);
         screenSendersRef.current.set(targetSocketId, sender);
+        if (screenAudioTrackRef.current) {
+          const audioSender = peer.addTrack(screenAudioTrackRef.current, screenStream);
+          screenAudioSendersRef.current.set(targetSocketId, audioSender);
+        }
       }
 
       // Garante transceivers para receber áudio e vídeo mesmo em modo ouvinte (sem microfone/câmera locais)
@@ -183,15 +209,30 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
         applyHardwareAcceleratedCodecPreferences(videoTransceiver);
       }
 
-      // OPT-02 — Previne glare e race conditions verificando se signalingState está 'stable'
+      let isNegotiating = false;
+
+      // OPT-02 — Previne glare e race conditions com WebRTC 1.0 Perfect Negotiation
       peer.onnegotiationneeded = async () => {
-        if (peer.signalingState !== 'stable') return;
+        if (peer.signalingState !== 'stable' || isNegotiating) return;
         try {
-          const offer = await peer.createOffer();
-          await peer.setLocalDescription(offer);
-          socket?.emit('webrtc_offer', { targetSocketId, offer, channelId });
+          isNegotiating = true;
+          try {
+            await peer.setLocalDescription();
+          } catch {
+            const offer = await peer.createOffer();
+            await peer.setLocalDescription(offer);
+          }
+          if (peer.localDescription) {
+            socket?.emit('webrtc_offer', {
+              targetSocketId,
+              offer: peer.localDescription,
+              channelId,
+            });
+          }
         } catch (err) {
           console.warn('Re-negociação falhou:', err);
+        } finally {
+          isNegotiating = false;
         }
       };
 
@@ -202,11 +243,101 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
       };
 
       peer.ontrack = (event) => {
+        if (!primaryStreamId && event.streams[0]) {
+          primaryStreamId = event.streams[0].id;
+        }
+
+        const isSecondaryStream = !!(event.streams[0] && primaryStreamId && event.streams[0].id !== primaryStreamId);
+
+        const isScreenVideo = (
+          event.track.kind === 'video' &&
+          (isSecondaryStream ||
+           screenSharerSocketId === targetSocketId ||
+           (event.track.label && (
+             event.track.label.toLowerCase().includes('screen') ||
+             event.track.label.toLowerCase().includes('window') ||
+             event.track.label.toLowerCase().includes('display')
+           )))
+        );
+
+        const isScreenAudio = (
+          event.track.kind === 'audio' &&
+          (isSecondaryStream ||
+           (screenSharerSocketId === targetSocketId &&
+            event.streams[0] && event.streams[0].getVideoTracks().length > 0))
+        );
+
+        if (isScreenVideo || isScreenAudio) {
+          setRemoteScreenStreams(prev => {
+            const currentScreen = prev[targetSocketId];
+            if (currentScreen) {
+              if (!currentScreen.getTracks().some(t => t.id === event.track.id)) {
+                currentScreen.addTrack(event.track);
+              }
+              return { ...prev, [targetSocketId]: currentScreen };
+            }
+            return {
+              ...prev,
+              [targetSocketId]: event.streams[0] || new MediaStream([event.track]),
+            };
+          });
+
+          // Áudio de transmissão de tela é reproduzido pelo player central da tela, não pelo tile do usuário
+          if (isScreenAudio) {
+            const onAudioEnded = () => {
+              setRemoteScreenStreams(p => {
+                const s = p[targetSocketId];
+                if (!s) return p;
+                try { s.removeTrack(event.track); } catch {}
+                return { ...p, [targetSocketId]: s };
+              });
+            };
+            event.track.addEventListener('ended', onAudioEnded, { once: true });
+            return;
+          }
+        }
+
         setRemoteStreams(prev => {
-          if (prev[targetSocketId]?.stream === event.streams[0]) return prev;
+          const currentEntry = prev[targetSocketId];
+          let stream: MediaStream;
+
+          if (currentEntry?.stream) {
+            stream = currentEntry.stream;
+            if (!stream.getTracks().some(t => t.id === event.track.id)) {
+              stream.addTrack(event.track);
+            }
+          } else {
+            stream = new MediaStream([event.track]);
+            if (event.streams[0]) {
+              event.streams[0].getTracks().forEach(t => {
+                if (!stream.getTracks().some(existing => existing.id === t.id)) {
+                  stream.addTrack(t);
+                }
+              });
+            }
+          }
+
+          const onTrackEnded = () => {
+            try {
+              stream.removeTrack(event.track);
+            } catch {}
+            setRemoteStreams(p => {
+              const entry = p[targetSocketId];
+              if (!entry) return p;
+              return { ...p, [targetSocketId]: { ...entry } };
+            });
+            setRemoteScreenStreams(p => {
+              if (!(targetSocketId in p)) return p;
+              const { [targetSocketId]: _, ...rest } = p;
+              return rest;
+            });
+          };
+
+          event.track.addEventListener('ended', onTrackEnded, { once: true });
+
           return {
             ...prev,
-            [targetSocketId]: { stream: event.streams[0], userId: targetUserId },
+            [targetSocketId]: { stream, userId: targetUserId },
           };
         });
       };
@@ -216,34 +347,80 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
     };
 
     const handleUserJoined = async ({ userId, socketId }: { userId: string, socketId: string }) => {
+      const existing = peersRef.current[socketId];
+      if (existing) {
+        try { existing.close(); } catch {}
+        delete peersRef.current[socketId];
+      }
       const peer = createPeer(socketId, userId);
-      const offer = await peer.createOffer();
-      await peer.setLocalDescription(offer);
-      socket.emit('webrtc_offer', { targetSocketId: socketId, offer, channelId });
+      try {
+        const offer = await peer.createOffer();
+        await peer.setLocalDescription(offer);
+        socket.emit('webrtc_offer', { targetSocketId: socketId, offer, channelId });
+      } catch (err) {
+        console.warn('Erro ao criar oferta para novo usuário:', err);
+      }
     };
 
     const handleOffer = async ({ fromSocketId, fromUserId, offer }: { fromSocketId: string; fromUserId: string; offer: RTCSessionDescriptionInit }) => {
-      const peer = createPeer(fromSocketId, fromUserId);
-      await peer.setRemoteDescription(new RTCSessionDescription(offer));
-      const answer = await peer.createAnswer();
-      await peer.setLocalDescription(answer);
-      socket.emit('webrtc_answer', { targetSocketId: fromSocketId, answer, channelId });
-
-      // OPT-03: Processar candidatos ICE que chegaram antes do setRemoteDescription
-      const queued = iceCandidateQueues.current[fromSocketId] ?? [];
-      for (const c of queued) {
-        try {
-          await peer.addIceCandidate(new RTCIceCandidate(c));
-        } catch (err) {
-          console.warn('Falha ao descarregar candidato ICE em buffer:', err);
-        }
+      let peer = peersRef.current[fromSocketId];
+      if (!peer || peer.connectionState === 'closed') {
+        peer = createPeer(fromSocketId, fromUserId);
       }
-      delete iceCandidateQueues.current[fromSocketId];
+
+      try {
+        const isPolite = socket.id ? socket.id > fromSocketId : true;
+        const offerCollision = peer.signalingState !== 'stable';
+        if (offerCollision && !isPolite) {
+          console.warn('Colisão de oferta WebRTC ignorada pelo peer impolido');
+          return;
+        }
+
+        if (offerCollision) {
+          await Promise.all([
+            peer.setLocalDescription({ type: 'rollback' }),
+            peer.setRemoteDescription(new RTCSessionDescription(offer))
+          ]);
+        } else {
+          await peer.setRemoteDescription(new RTCSessionDescription(offer));
+        }
+
+        try {
+          await peer.setLocalDescription();
+        } catch {
+          const answer = await peer.createAnswer();
+          await peer.setLocalDescription(answer);
+        }
+
+        if (peer.localDescription) {
+          socket.emit('webrtc_answer', { targetSocketId: fromSocketId, answer: peer.localDescription, channelId });
+        }
+
+        // OPT-03: Processar candidatos ICE que chegaram antes do setRemoteDescription
+        const queued = iceCandidateQueues.current[fromSocketId] ?? [];
+        for (const c of queued) {
+          try {
+            await peer.addIceCandidate(new RTCIceCandidate(c));
+          } catch (err) {
+            console.warn('Falha ao descarregar candidato ICE em buffer:', err);
+          }
+        }
+        delete iceCandidateQueues.current[fromSocketId];
+      } catch (err) {
+        console.warn('Erro ao processar oferta WebRTC:', err);
+      }
     };
 
     const handleAnswer = async ({ fromSocketId, answer }: { fromSocketId: string; answer: RTCSessionDescriptionInit }) => {
       const peer = peersRef.current[fromSocketId];
-      if (peer) {
+      if (!peer || peer.connectionState === 'closed') return;
+
+      if (peer.signalingState !== 'have-local-offer') {
+        console.warn(`[WebRTC] Ignorando resposta SDP: estado atual é '${peer.signalingState}', esperado 'have-local-offer'.`);
+        return;
+      }
+
+      try {
         await peer.setRemoteDescription(new RTCSessionDescription(answer));
 
         // OPT-03: Processar candidatos ICE que chegaram antes do setRemoteDescription
@@ -256,6 +433,8 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
           }
         }
         delete iceCandidateQueues.current[fromSocketId];
+      } catch (err) {
+        console.warn('Erro ao processar resposta WebRTC:', err);
       }
     };
 
@@ -287,6 +466,11 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
         const { [socketId]: _, ...rest } = prev;
         return rest;
       });
+      setRemoteScreenStreams(prev => {
+        if (!(socketId in prev)) return prev;
+        const { [socketId]: _, ...rest } = prev;
+        return rest;
+      });
       // Limpar screen share se o utilizador que saiu estava a partilhar
       setScreenSharerSocketId(prev => (prev === socketId ? null : prev));
     };
@@ -298,6 +482,11 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
 
     const handleScreenShareStopped = ({ fromSocketId }: { fromSocketId: string }) => {
       setScreenSharerSocketId(prev => (prev === fromSocketId ? null : prev));
+      setRemoteScreenStreams(prev => {
+        if (!(fromSocketId in prev)) return prev;
+        const { [fromSocketId]: _, ...rest } = prev;
+        return rest;
+      });
     };
 
     socket.on('user_joined_voice', handleUserJoined);
@@ -446,29 +635,68 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
     const targetConfig = SCREEN_SHARE_CONFIG[chosenResolution] ?? SCREEN_SHARE_CONFIG['720p'];
 
     try {
-      const screenStream = await navigator.mediaDevices.getDisplayMedia({
-        video: {
-          displaySurface: 'monitor',
-          frameRate: { ideal: chosenFps, max: chosenFps },
-          width: { ideal: targetConfig.width, max: targetConfig.width },
-          height: { ideal: targetConfig.height, max: targetConfig.height },
-        },
-        audio: false, // áudio de sistema captura notificações privadas — desabilitado por segurança
-      });
+      let screenStream: MediaStream;
+      try {
+        screenStream = await navigator.mediaDevices.getDisplayMedia({
+          video: {
+            displaySurface: 'monitor',
+            frameRate: { ideal: chosenFps, max: chosenFps },
+            width: { ideal: targetConfig.width, max: targetConfig.width },
+            height: { ideal: targetConfig.height, max: targetConfig.height },
+          },
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+          },
+        });
+      } catch {
+        screenStream = await navigator.mediaDevices.getDisplayMedia({
+          video: {
+            displaySurface: 'monitor',
+            frameRate: { ideal: chosenFps, max: chosenFps },
+            width: { ideal: targetConfig.width, max: targetConfig.width },
+            height: { ideal: targetConfig.height, max: targetConfig.height },
+          },
+          audio: true,
+        });
+      }
 
       const screenTrack = screenStream.getVideoTracks()[0];
       if (!screenTrack) return;
 
+      const screenAudioTrack = screenStream.getAudioTracks()[0] || null;
+
       screenTrackRef.current = screenTrack;
+      screenAudioTrackRef.current = screenAudioTrack;
       setScreenShareResolution(chosenResolution);
       setScreenShareFps(chosenFps);
 
       // OPT-04: Rastrear RTCRtpSender no Map direto (browser-agnóstico)
       for (const [id, peer] of Object.entries(peersRef.current)) {
-        const sender = peer.addTrack(screenTrack, screenStream);
-        screenSendersRef.current.set(id, sender);
+        if (peer.connectionState === 'closed') continue;
+
+        const existingSender = screenSendersRef.current.get(id);
+        if (existingSender) {
+          await existingSender.replaceTrack(screenTrack);
+        } else {
+          const sender = peer.addTrack(screenTrack, screenStream);
+          screenSendersRef.current.set(id, sender);
+        }
+
+        // Se houver faixa de áudio de sistema/aba na transmissão de tela:
+        if (screenAudioTrack) {
+          const existingAudioSender = screenAudioSendersRef.current.get(id);
+          if (existingAudioSender) {
+            await existingAudioSender.replaceTrack(screenAudioTrack);
+          } else {
+            const audioSender = peer.addTrack(screenAudioTrack, screenStream);
+            screenAudioSendersRef.current.set(id, audioSender);
+          }
+        }
       }
 
+      setLocalScreenStream(screenStream);
       socket?.emit('screen_share_started', { channelId });
       setIsScreenSharing(true);
 
@@ -476,6 +704,19 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
       screenTrack.onended = () => {
         stopScreenShare();
       };
+
+      if (screenAudioTrack) {
+        screenAudioTrack.onended = () => {
+          screenAudioTrackRef.current = null;
+          for (const [id, peer] of Object.entries(peersRef.current)) {
+            if (peer.connectionState === 'closed') continue;
+            const audioSender = screenAudioSendersRef.current.get(id);
+            if (audioSender) {
+              try { audioSender.replaceTrack(null); } catch {}
+            }
+          }
+        };
+      }
     } catch (err) {
       // Utilizador cancelou o seletor de janela — não é erro crítico
       console.warn('Screen share cancelado ou permissão negada:', err);
@@ -507,8 +748,8 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
   /**
    * Tarefa 2.2 — Parar partilha de tela.
    *
-   * Para a faixa, remove dos peers (onnegotiationneeded renegocia) e
-   * notifica os outros via socket.
+   * Substitui a faixa de tela por null nos senders existentes em vez de removeTrack.
+   * Isso evita corrupção da ordem de m-lines no SDP e não exige renegociação pesada.
    */
   const stopScreenShare = () => {
     if (!channelId) return;
@@ -517,19 +758,33 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
       screenTrackRef.current.stop();
       screenTrackRef.current = null;
     }
+    if (screenAudioTrackRef.current) {
+      screenAudioTrackRef.current.stop();
+      screenAudioTrackRef.current = null;
+    }
 
-    // OPT-04: Remover sender de tela usando a referência direta do Map
+    setLocalScreenStream(null);
+
+    // OPT-04: Silenciar sender de tela com replaceTrack(null) para preservar m-lines
     for (const [id, peer] of Object.entries(peersRef.current)) {
+      if (peer.connectionState === 'closed') continue;
       const sender = screenSendersRef.current.get(id);
       if (sender) {
         try {
-          peer.removeTrack(sender);
+          sender.replaceTrack(null);
         } catch (err) {
-          console.warn('Erro ao remover track de tela:', err);
+          console.warn('Erro ao desativar track de vídeo de tela:', err);
+        }
+      }
+      const audioSender = screenAudioSendersRef.current.get(id);
+      if (audioSender) {
+        try {
+          audioSender.replaceTrack(null);
+        } catch (err) {
+          console.warn('Erro ao desativar track de áudio de tela:', err);
         }
       }
     }
-    screenSendersRef.current.clear();
 
     socket?.emit('screen_share_stopped', { channelId });
     setIsScreenSharing(false);
@@ -538,7 +793,9 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
   return {
     localStream,
     localStreamVersion,
+    localScreenStream,
     remoteStreams,
+    remoteScreenStreams,
     isMuted,
     isVideoOff,
     isScreenSharing,

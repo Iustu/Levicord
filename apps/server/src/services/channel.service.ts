@@ -2,7 +2,7 @@ import sanitizeHtml from 'sanitize-html';
 import { Prisma } from '@prisma/client';
 import { prisma as defaultPrisma } from '../prisma';
 import type { PrismaClient } from '@prisma/client';
-import { canDeleteMessage, type ActorContext, type ServerContext } from './permission.service';
+import { canDeleteMessage, isRootSuperAdmin, type ActorContext, type ServerContext } from './permission.service';
 import { isUserMutedInServer } from './server.service';
 import { encryptForServer, decryptForServer } from '../lib/crypto';
 
@@ -14,14 +14,18 @@ export async function getChannels(
   serverIdOrPrisma?: string | null | PrismaClient,
   prismaClient?: PrismaClient
 ) {
-  let serverId: string | null | undefined = undefined;
+  let serverId: string | null | undefined = null;
   let prisma: PrismaClient = defaultPrisma;
 
-  if (typeof serverIdOrPrisma === 'string' || serverIdOrPrisma === null) {
+  if (serverIdOrPrisma === 'all') {
+    serverId = undefined;
+    prisma = prismaClient || defaultPrisma;
+  } else if (typeof serverIdOrPrisma === 'string' || serverIdOrPrisma === null) {
     serverId = serverIdOrPrisma;
     prisma = prismaClient || defaultPrisma;
   } else if (serverIdOrPrisma && typeof serverIdOrPrisma === 'object') {
     prisma = serverIdOrPrisma as PrismaClient;
+    serverId = undefined;
   }
 
   let where: Prisma.ChannelWhereInput | undefined = undefined;
@@ -59,6 +63,12 @@ export async function canAccessChannel(channelId: string, userId: string, isUser
     include: { members: { where: { userId } } }
   });
   if (!channel) return false;
+  if (channel.serverId && prisma.serverMember?.findUnique) {
+    const member = await prisma.serverMember.findUnique({
+      where: { serverId_userId: { serverId: channel.serverId, userId } }
+    });
+    if (!member) return false;
+  }
   return !channel.isPrivate || channel.members.length > 0;
 }
 
@@ -78,11 +88,121 @@ export async function createChannel(name: string, description?: string, type: 'T
   });
 }
 
-export async function updateChannel(id: string, name: string, description?: string, prisma: PrismaClient = defaultPrisma) {
+export async function updateChannel(
+  id: string,
+  userId: string,
+  data: { name?: string; description?: string },
+  prisma: PrismaClient = defaultPrisma,
+) {
+  const channel = await prisma.channel.findUnique({
+    where: { id },
+    select: { id: true, name: true, serverId: true },
+  });
+
+  if (!channel) {
+    throw new Error('Canal não encontrado');
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, role: true, email: true },
+  });
+
+  const isGlobalSuper = user?.role === 'SUPERADMIN' || (user?.email ? isRootSuperAdmin(user.email) : false);
+
+  if (channel.serverId) {
+    const [member, server] = await Promise.all([
+      prisma.serverMember.findUnique({
+        where: { serverId_userId: { serverId: channel.serverId, userId } },
+      }),
+      prisma.server.findUnique({
+        where: { id: channel.serverId },
+        select: { ownerId: true },
+      }),
+    ]);
+
+    const isServerAdmin = member?.role === 'ADMIN' || member?.role === 'OWNER' || server?.ownerId === userId;
+    if (!isServerAdmin) {
+      throw new Error('Sem permissão para alterar canal neste servidor. Apenas administradores do servidor local podem gerenciar canais.');
+    }
+  } else {
+    if (!isGlobalSuper) {
+      throw new Error('Apenas SuperAdmins podem alterar canais globais.');
+    }
+  }
+
   return prisma.channel.update({
     where: { id },
-    data: { name, description },
+    data,
   });
+}
+
+export async function deleteChannel(
+  channelId: string,
+  userId: string,
+  prisma: PrismaClient = defaultPrisma
+) {
+  const channel = await prisma.channel.findUnique({
+    where: { id: channelId },
+    select: { id: true, name: true, serverId: true },
+  });
+
+  if (!channel) {
+    throw new Error('Canal não encontrado');
+  }
+
+  // Permission check
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, role: true, email: true },
+  });
+
+  const isGlobalSuper = user?.role === 'SUPERADMIN' || (user?.email ? isRootSuperAdmin(user.email) : false);
+
+  if (channel.serverId) {
+    // Channel belongs to a server
+    const [member, server] = await Promise.all([
+      prisma.serverMember.findUnique({
+        where: { serverId_userId: { serverId: channel.serverId, userId } },
+      }),
+      prisma.server.findUnique({
+        where: { id: channel.serverId },
+        select: { ownerId: true },
+      }),
+    ]);
+
+    const isServerAdmin = member?.role === 'ADMIN' || member?.role === 'OWNER' || server?.ownerId === userId;
+
+    if (!isServerAdmin) {
+      throw new Error('Sem permissão para excluir canal neste servidor. Apenas administradores do servidor local podem gerenciar canais.');
+    }
+
+    await prisma.channel.delete({
+      where: { id: channelId },
+    });
+
+    if (prisma.auditLog?.create) {
+      await prisma.auditLog.create({
+        data: {
+          serverId: channel.serverId,
+          actorId: userId,
+          action: 'CHANNEL_DELETE',
+          metadata: JSON.stringify({ channelId: channel.id, name: channel.name }),
+        },
+      });
+    }
+  } else {
+    // Global channel
+    if (!isGlobalSuper) {
+      throw new Error('Apenas SuperAdmins podem excluir canais globais.');
+    }
+
+    await prisma.channel.delete({
+      where: { id: channelId },
+    });
+  }
+
+  return { success: true, id: channelId };
 }
 
 export async function getChannelMessages(channelId: string, limit = 50, cursor?: string, prisma: PrismaClient = defaultPrisma) {
@@ -170,6 +290,16 @@ export async function createMessage(
     if (channel) {
       serverId = channel.serverId;
       if (channel.serverId) {
+        if (prisma.serverMember?.findUnique) {
+          const member = await prisma.serverMember.findUnique({
+            where: { serverId_userId: { serverId: channel.serverId, userId: authorId } },
+          });
+
+          if (!member) {
+            throw new Error('Você precisa ser membro deste servidor para enviar mensagens.');
+          }
+        }
+
         const isMuted = await isUserMutedInServer(channel.serverId, authorId, prisma);
         if (isMuted) {
           throw new Error('Você está mutado neste servidor.');

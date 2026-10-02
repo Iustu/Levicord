@@ -21,7 +21,11 @@ import { MessageList } from '../components/MessageList';
 import { ChatInput } from '../components/ChatInput';
 import { VoiceScreen } from '../components/VoiceScreen';
 import { MembersSidebar } from '../components/MembersSidebar';
-import { Compass, AlertCircle, ShieldAlert, LogOut } from 'lucide-react';
+import { useDmCall } from '../hooks/useDmCall';
+import { IncomingCallModal } from '../components/IncomingCallModal';
+import { DmCallingScreen } from '../components/DmCallingScreen';
+import { WebRTCGrid } from '../components/WebRTCGrid';
+import { Compass, AlertCircle, ShieldAlert, LogOut, Shield } from 'lucide-react';
 import type { Channel, Message, User, Server } from '@discord-clone/shared';
 import type { UploadedAttachment } from '../components/ChatInput';
 import './MainApp.css';
@@ -58,8 +62,17 @@ export default function MainApp() {
   const setCurrentUser = useChatStore((s) => s.setCurrentUser);
   const updateCurrentUser = useChatStore((s) => s.updateCurrentUser);
   const onlineUserIds = useChatStore((s) => s.onlineUserIds);
+  const markMessageDeleted = useChatStore((s) => s.markMessageDeleted);
 
   const { socket, joinChannel, sendMessage, sendDm, sendTypingStart, sendTypingStop } = useSocket();
+  const {
+    activeDmCall,
+    incomingCall,
+    startCall,
+    acceptCall,
+    rejectCall,
+    endCall,
+  } = useDmCall(socket);
 
   // ── Access & Gatekeeper State ──────────────────────────────────────────────
   const [hasAccess, setHasAccess] = useState<boolean | null>(null);
@@ -221,25 +234,29 @@ export default function MainApp() {
       .catch(() => setChannelsError('Não foi possível carregar os canais. Verifique a ligação e tente novamente.'));
   }, [token, activeServerId, channelsRetryKey, hasAccess, setChannels, setActiveChannelId]);
 
-  // ── 5. Load Users for DMs ──────────────────────────────────────────────────
+  // ── 5. Load Users (for DMs and Member resolution across channels) ──────────
   useEffect(() => {
-    if (!token || viewMode !== 'dms' || hasAccess === false) return;
+    if (!token || hasAccess === false) return;
     apiFetch<{ users: User[]; nextCursor: string | null }>('/api/users', token)
       .then(({ users: fetchedUsers }) => setUsers(fetchedUsers))
       .catch(console.error);
-  }, [token, viewMode, hasAccess, setUsers]);
+  }, [token, hasAccess, setUsers]);
 
   // ── Derived Permissions ────────────────────────────────────────────────────
   const isSuperAdmin =
     currentUser?.role === 'SUPERADMIN' ||
     currentUser?.email?.toLowerCase() === 'joaoprf2001@gmail.com';
 
-  const isServerAdmin =
-    isSuperAdmin ||
+  // For server channels: ONLY a local server admin (ADMIN or OWNER of that server) can alter/manage channels.
+  const isLocalServerAdmin =
     activeServer?.currentUserRole === 'ADMIN' ||
     activeServer?.currentUserRole === 'OWNER';
 
-  const canCreateChannel = activeServerId ? isServerAdmin : isSuperAdmin || currentUser?.role === 'ADMIN';
+  // Local server admin manages server channels; SuperAdmin manages global channels
+  const canManageChannel = Boolean(activeServerId ? isLocalServerAdmin : isSuperAdmin);
+
+  // When a superadmin is observing a server they haven't been invited to join, they have no server member role
+  const isNonMemberViewingServer = Boolean(activeServerId && !activeServer?.currentUserRole);
 
   // ── Derived active items ───────────────────────────────────────────────────
   const activeChannel = channels.find((c) => c.id === activeChannelId);
@@ -259,7 +276,9 @@ export default function MainApp() {
   };
 
   const chatPlaceholder = viewMode === 'channels'
-    ? `Conversar em #${activeChannel?.name ?? ''}`
+    ? (isNonMemberViewingServer
+        ? 'Apenas membros convidados deste servidor podem enviar mensagens'
+        : `Conversar em #${activeChannel?.name ?? ''}`)
     : `Enviar mensagem para @${activeDmUser?.displayName ?? ''}`;
 
   const hasActiveConversation =
@@ -268,6 +287,7 @@ export default function MainApp() {
 
   // ── Send handlers ─────────────────────────────────────────────────────────
   const handleSend = (content: string | null, attachment: UploadedAttachment | null) => {
+    if (viewMode === 'channels' && isNonMemberViewingServer) return;
     const attachments = attachment ? [attachment] : undefined;
     if (viewMode === 'channels' && activeChannelId) sendMessage(activeChannelId, content, attachments);
     else if (viewMode === 'dms' && activeDmUserId) sendDm(activeDmUserId, content, attachments);
@@ -275,7 +295,7 @@ export default function MainApp() {
 
   // ── Channel CRUD ──────────────────────────────────────────────────────────
   const handleSaveChannel = async (name: string, description: string, type: 'TEXT' | 'VOICE' = 'TEXT') => {
-    if (!token) return;
+    if (!token || !canManageChannel) return;
     if (!editingChannel) {
       const endpoint = activeServerId
         ? `/api/servers/${activeServerId}/channels`
@@ -288,7 +308,11 @@ export default function MainApp() {
       setChannels([...channels, newChannel]);
       if (type === 'TEXT') setActiveChannelId(newChannel.id);
     } else {
-      const updated = await apiFetch<Channel>(`/api/channels/${editingChannel.id}`, token, {
+      const endpoint = activeServerId
+        ? `/api/servers/${activeServerId}/channels/${editingChannel.id}`
+        : `/api/channels/${editingChannel.id}`;
+
+      const updated = await apiFetch<Channel>(endpoint, token, {
         method: 'PUT',
         body: JSON.stringify({ name, description }),
       });
@@ -297,20 +321,66 @@ export default function MainApp() {
     }
   };
 
+  const handleDeleteChannel = async (channelId: string) => {
+    if (!token || !canManageChannel) return;
+    const endpoint = activeServerId
+      ? `/api/servers/${activeServerId}/channels/${channelId}`
+      : `/api/channels/${channelId}`;
+
+    await apiFetch(endpoint, token, {
+      method: 'DELETE',
+    });
+
+    const remaining = channels.filter((c) => c.id !== channelId);
+    setChannels(remaining);
+
+    if (editingChannel?.id === channelId) {
+      setEditingChannel(null);
+      setIsModalOpen(false);
+    }
+
+    if (activeChannelId === channelId) {
+      const nextChannel = remaining.find((c) => c.type === 'TEXT') || remaining[0];
+      setActiveChannelId(nextChannel ? nextChannel.id : null);
+    }
+
+    if (activeVoiceChannelId === channelId) {
+      setActiveVoiceChannelId(null);
+    }
+  };
+
   const handleChannelClick = (channel: Channel) => {
     setActiveChannelId(channel.id);
     if (channel.type === 'VOICE') setActiveVoiceChannelId(null);
   };
 
+  const handleDeleteMessage = async (messageId: string) => {
+    if (!token || !activeChannelId) return;
+    if (!window.confirm('Tem certeza que deseja excluir esta mensagem?')) return;
+    try {
+      markMessageDeleted(messageId);
+      await apiFetch(`/api/channels/${activeChannelId}/messages/${messageId}`, token, {
+        method: 'DELETE',
+      });
+    } catch (err: any) {
+      console.error('Erro ao excluir mensagem:', err);
+    }
+  };
+
   // ── Server Navigation & Actions ────────────────────────────────────────────
   const handleSelectServer = (serverId: string | null) => {
     setActiveServerId(serverId);
-    setViewMode('channels');
+    if (serverId) {
+      setViewMode('channels');
+    } else {
+      setViewMode('dms');
+    }
   };
 
   const handleServerCreated = (newServer: Server & { defaultChannelId?: string }) => {
     setServers([...servers, newServer]);
     setActiveServerId(newServer.id);
+    setViewMode('channels');
     setIsCreateServerModalOpen(false);
   };
 
@@ -319,6 +389,7 @@ export default function MainApp() {
       setServers([...servers, server]);
     }
     setActiveServerId(server.id);
+    setViewMode('channels');
     setHasAccess(true);
     setIsJoinServerModalOpen(false);
   };
@@ -514,6 +585,7 @@ export default function MainApp() {
         onOpenJoinServer={() => setIsJoinServerModalOpen(true)}
         onOpenSuperAdmin={() => setIsSuperAdminModalOpen(true)}
         currentUser={currentUser}
+        isSuperAdmin={isSuperAdmin}
       />
 
       {/* ── Sidebar Component (Channels & DMs) ─────────────────────────── */}
@@ -525,8 +597,12 @@ export default function MainApp() {
         channels={channels}
         activeChannelId={activeChannelId}
         onSelectChannel={handleChannelClick}
-        onOpenCreateChannel={() => setIsModalOpen(true)}
-        onEditChannel={setEditingChannel}
+        onOpenCreateChannel={() => {
+          if (canManageChannel) setIsModalOpen(true);
+        }}
+        onEditChannel={(ch) => {
+          if (canManageChannel) setEditingChannel(ch);
+        }}
         createChannelBtnRef={createChannelBtnRef}
         channelsError={channelsError}
         onRetryChannels={() => setChannelsRetryKey((k) => k + 1)}
@@ -538,7 +614,8 @@ export default function MainApp() {
         onOpenLogout={() => setIsLogoutModalOpen(true)}
         activeServer={activeServer}
         onOpenInviteModal={() => setIsInviteModalOpen(true)}
-        canCreateChannel={canCreateChannel}
+        canCreateChannel={canManageChannel}
+        onDeleteChannel={canManageChannel ? handleDeleteChannel : undefined}
       />
 
       {/* ── Main Chat / Content Area ───────────────────────────────────── */}
@@ -557,6 +634,9 @@ export default function MainApp() {
               onClearSearch={clearSearch}
               isMembersSidebarOpen={isMembersOpen}
               onToggleMembersSidebar={() => setIsMembersOpen((o) => !o)}
+              onStartCall={activeDmUser ? (isVideo) => startCall(activeDmUser, isVideo) : undefined}
+              isInDmCall={activeDmCall?.targetUser.id === activeDmUserId}
+              onEndDmCall={endCall}
             />
 
             <SearchResultsOverlay
@@ -571,12 +651,44 @@ export default function MainApp() {
                 channelName={activeChannel!.name}
                 channelId={activeChannelId!}
                 isInCall={isInCall}
-                onJoin={() => setActiveVoiceChannelId(activeChannelId!)}
+                onJoin={() => {
+                  if (isSuperAdmin && activeServerId) return;
+                  setActiveVoiceChannelId(activeChannelId!);
+                }}
                 onDisconnect={() => setActiveVoiceChannelId(null)}
+                isSuperAdmin={isSuperAdmin}
+                isServerChannel={Boolean(activeServerId)}
               />
             ) : (
               <div className="chat-body-container">
                 <div className="chat-messages-column">
+                  {viewMode === 'dms' && activeDmCall?.targetUser.id === activeDmUserId && (
+                    activeDmCall.status === 'calling' ? (
+                      <DmCallingScreen
+                        targetUser={activeDmCall.targetUser}
+                        isVideo={activeDmCall.isVideo}
+                        onCancel={endCall}
+                      />
+                    ) : (
+                      <div
+                        className="dm-call-webrtc-box"
+                        style={{
+                          width: '100%',
+                          height: '460px',
+                          minHeight: '360px',
+                          position: 'relative',
+                          borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+                          background: '#111214',
+                        }}
+                      >
+                        <WebRTCGrid
+                          channelId={activeDmCall.roomId}
+                          onDisconnect={endCall}
+                        />
+                      </div>
+                    )
+                  )}
+
                   <MessageList
                     messages={currentMessages}
                     viewMode={viewMode}
@@ -591,12 +703,36 @@ export default function MainApp() {
                     messagesEndRef={messagesEndRef}
                     messagesListRef={messagesListRef}
                     typingUserNames={typingUserNames}
+                    onDeleteMessage={handleDeleteMessage}
+                    currentUserId={currentUser?.id}
+                    isSuperAdmin={isSuperAdmin}
+                    isServerAdmin={isLocalServerAdmin}
                   />
+                  {isNonMemberViewingServer && viewMode === 'channels' && (
+                    <div
+                      style={{
+                        padding: '8px 16px',
+                        backgroundColor: 'rgba(88, 101, 242, 0.1)',
+                        borderTop: '1px solid rgba(88, 101, 242, 0.2)',
+                        color: '#949ba4',
+                        fontSize: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                      }}
+                    >
+                      <Shield size={14} color="#5865f2" />
+                      <span>
+                        Modo de moderação: Você não é membro deste servidor. Para participar das conversas e enviar mensagens, é necessário ser convidado.
+                      </span>
+                    </div>
+                  )}
                   <ChatInput
                     placeholder={chatPlaceholder}
+                    disabled={viewMode === 'channels' && isNonMemberViewingServer}
                     onSend={handleSend}
-                    onTypingStart={viewMode === 'channels' && activeChannelId ? () => sendTypingStart(activeChannelId) : undefined}
-                    onTypingStop={viewMode === 'channels' && activeChannelId ? () => sendTypingStop(activeChannelId) : undefined}
+                    onTypingStart={viewMode === 'channels' && activeChannelId && !isNonMemberViewingServer ? () => sendTypingStart(activeChannelId) : undefined}
+                    onTypingStop={viewMode === 'channels' && activeChannelId && !isNonMemberViewingServer ? () => sendTypingStop(activeChannelId) : undefined}
                   />
                 </div>
 
@@ -607,6 +743,7 @@ export default function MainApp() {
                     onlineUserIds={onlineUserIds}
                     isOpen={isMembersOpen}
                     onSelectUser={(userId) => {
+                      setActiveServerId(null);
                       setViewMode('dms');
                       setActiveDmUserId(userId);
                     }}
@@ -635,9 +772,10 @@ export default function MainApp() {
 
       {/* ── Modals ──────────────────────────────────────────────────────── */}
       <CreateChannelModal
-        isOpen={isModalOpen || editingChannel !== null}
+        isOpen={(isModalOpen || editingChannel !== null) && canManageChannel}
         onClose={() => { setIsModalOpen(false); setEditingChannel(null); }}
         onSubmit={handleSaveChannel}
+        onDelete={editingChannel && canManageChannel ? () => handleDeleteChannel(editingChannel.id) : undefined}
         initialName={editingChannel?.name}
         initialDescription={editingChannel?.description ?? ''}
         initialType={editingChannel?.type ?? 'TEXT'}
@@ -647,7 +785,7 @@ export default function MainApp() {
       />
 
       <CreateServerModal
-        isOpen={isCreateServerModalOpen}
+        isOpen={isCreateServerModalOpen && isSuperAdmin}
         onClose={() => setIsCreateServerModalOpen(false)}
         onServerCreated={handleServerCreated}
       />
@@ -685,6 +823,78 @@ export default function MainApp() {
         onClose={() => setIsLogoutModalOpen(false)}
         onConfirm={logout}
       />
+
+      {/* ── Incoming Call Modal (for receiving 1-on-1 DM calls) ───────────── */}
+      {incomingCall && (
+        <IncomingCallModal
+          incomingCall={incomingCall}
+          onAccept={acceptCall}
+          onReject={rejectCall}
+        />
+      )}
+
+      {/* ── Floating Active Call Bar (when navigating away during a DM call) ── */}
+      {activeDmCall && activeDmCall.status === 'connected' && (viewMode !== 'dms' || activeDmUserId !== activeDmCall.targetUser.id) && (
+        <div
+          className="dm-active-call-floating-bar"
+          style={{
+            position: 'fixed',
+            bottom: '24px',
+            right: '24px',
+            backgroundColor: 'rgba(17, 18, 20, 0.95)',
+            backdropFilter: 'blur(12px)',
+            border: '1px solid #23a55a',
+            borderRadius: '10px',
+            padding: '10px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            zIndex: 9999,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+          }}
+        >
+          <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: '#23a55a', display: 'inline-block' }} />
+          <span style={{ color: '#f2f3f5', fontSize: '13px', fontWeight: 600 }}>
+            Em chamada com @{activeDmCall.targetUser.displayName}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveServerId(null);
+              setViewMode('dms');
+              setActiveDmUserId(activeDmCall.targetUser.id);
+            }}
+            style={{
+              background: '#5865f2',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '6px',
+              padding: '6px 12px',
+              fontSize: '12px',
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            Voltar
+          </button>
+          <button
+            type="button"
+            onClick={endCall}
+            style={{
+              background: '#da373c',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '6px',
+              padding: '6px 12px',
+              fontSize: '12px',
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            Desconectar
+          </button>
+        </div>
+      )}
     </div>
   );
 }

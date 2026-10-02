@@ -29,6 +29,19 @@ export type ServerWithDetails = Server & {
   currentUserRole?: ServerMemberRole | null;
 };
 
+export interface ActiveDmCall {
+  roomId: string;
+  targetUser: User;
+  status: 'calling' | 'connected';
+  isVideo?: boolean;
+}
+
+export interface IncomingCall {
+  caller: User;
+  roomId: string;
+  isVideo?: boolean;
+}
+
 interface ChatState {
   viewMode: ViewMode;
   servers: Server[];
@@ -44,6 +57,8 @@ interface ChatState {
   dms: Record<string, DirectMessage[]>; // Key is the other user's ID
   dmsOrder: string[]; // LRU order — most recently accessed first
   onlineUserIds: string[];
+  activeDmCall: ActiveDmCall | null;
+  incomingCall: IncomingCall | null;
 
   setViewMode: (mode: ViewMode) => void;
   setServers: (servers: Server[]) => void;
@@ -64,6 +79,8 @@ interface ChatState {
   addDm: (dm: DirectMessage, otherUserId: string) => void;
   setOnlineUserIds: (ids: string[]) => void;
   setUserStatus: (userId: string, status: 'online' | 'offline') => void;
+  setActiveDmCall: (call: ActiveDmCall | null) => void;
+  setIncomingCall: (call: IncomingCall | null) => void;
 }
 
 export const useChatStore = create<ChatState>((set) => ({
@@ -81,6 +98,8 @@ export const useChatStore = create<ChatState>((set) => ({
   dms: {},
   dmsOrder: [],
   onlineUserIds: [],
+  activeDmCall: null,
+  incomingCall: null,
   setViewMode: (mode) => set({ viewMode: mode }),
   setServers: (servers) => set({ servers }),
   setActiveServerId: (id) => set({ activeServerId: id }),
@@ -90,6 +109,8 @@ export const useChatStore = create<ChatState>((set) => ({
   setActiveChannelId: (id) => set({ activeChannelId: id }),
   setActiveDmUserId: (id) => set({ activeDmUserId: id }),
   setCurrentUserId: (id) => set({ currentUserId: id }),
+  setActiveDmCall: (call) => set({ activeDmCall: call }),
+  setIncomingCall: (call) => set({ incomingCall: call }),
   setCurrentUser: (user) => set((state) => ({
     currentUser: user,
     onlineUserIds: user && !state.onlineUserIds.includes(user.id)

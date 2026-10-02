@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { requireAuth, getAuthUserId } from '../lib/auth';
 import { isSuperAdmin } from '../services/auth.service';
+import { deleteChannel, updateChannel } from '../services/channel.service';
 import {
   createServer,
   getServer,
@@ -119,36 +120,102 @@ export default async function serverRoutes(fastify: FastifyInstance) {
   );
 
   /**
-   * Update member role (e.g. promote to Server Admin or demote)
+   * Delete channel inside server (Server Admins / SuperAdmins / Owner)
    */
+  fastify.delete<{
+    Params: { serverId: string; channelId: string };
+  }>(
+    '/:serverId/channels/:channelId',
+    async (request, reply) => {
+      try {
+        const userId = getAuthUserId(request);
+        const { channelId } = request.params;
+        const result = await deleteChannel(channelId, userId);
+        return reply.code(200).send(result);
+      } catch (err: any) {
+        const msg = err.message || 'Erro ao excluir canal';
+        if (msg.includes('não encontrado')) {
+          return reply.code(404).send({ message: msg });
+        }
+        return reply.code(403).send({ message: msg });
+      }
+    },
+  );
+
+  /**
+   * Update channel inside server (Server Admins / SuperAdmins / Owner)
+   */
+  fastify.put<{
+    Params: { serverId: string; channelId: string };
+    Body: { name?: string; description?: string };
+  }>(
+    '/:serverId/channels/:channelId',
+    async (request, reply) => {
+      try {
+        const userId = getAuthUserId(request);
+        const { channelId } = request.params;
+        const { name, description } = request.body;
+        const result = await updateChannel(channelId, userId, { name, description });
+        return reply.code(200).send(result);
+      } catch (err: any) {
+        const msg = err.message || 'Erro ao atualizar canal';
+        if (msg.includes('não encontrado')) {
+          return reply.code(404).send({ message: msg });
+        }
+        return reply.code(403).send({ message: msg });
+      }
+    },
+  );
+
+  /**
+   * Update member role (e.g. promote to Server Admin or demote)
+   * Supports both PUT and POST for client flexibility
+   */
+  const updateRoleSchema = {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['role'],
+        properties: {
+          role: { type: 'string', enum: ['ADMIN', 'MODERATOR', 'MEMBER'] },
+        },
+      },
+    },
+  };
+
+  const handleUpdateRole = async (
+    request: any,
+    reply: any,
+  ) => {
+    try {
+      const userId = getAuthUserId(request);
+      const { serverId, targetUserId } = request.params as { serverId: string; targetUserId: string };
+      const { role } = request.body as { role: ServerMemberRole };
+      const updated = await updateMemberRole(serverId, userId, targetUserId, role);
+      return reply.code(200).send(updated);
+    } catch (err: any) {
+      return reply.code(403).send({ message: err.message || 'Sem permissão para alterar cargo' });
+    }
+  };
+
   fastify.put<{
     Params: { serverId: string; targetUserId: string };
     Body: { role: ServerMemberRole };
   }>(
     '/:serverId/members/:targetUserId/role',
-    {
-      schema: {
-        body: {
-          type: 'object',
-          required: ['role'],
-          properties: {
-            role: { type: 'string', enum: ['ADMIN', 'MODERATOR', 'MEMBER'] },
-          },
-        },
-      },
-    },
-    async (request, reply) => {
-      try {
-        const userId = getAuthUserId(request);
-        const { serverId, targetUserId } = request.params;
-        const { role } = request.body;
-        const updated = await updateMemberRole(serverId, userId, targetUserId, role);
-        return reply.code(200).send(updated);
-      } catch (err: any) {
-        return reply.code(403).send({ message: err.message || 'Sem permissão para alterar cargo' });
-      }
-    },
+    updateRoleSchema,
+    handleUpdateRole,
   );
+
+  fastify.post<{
+    Params: { serverId: string; targetUserId: string };
+    Body: { role: ServerMemberRole };
+  }>(
+    '/:serverId/members/:targetUserId/role',
+    updateRoleSchema,
+    handleUpdateRole,
+  );
+
 
   /**
    * Kick member from server

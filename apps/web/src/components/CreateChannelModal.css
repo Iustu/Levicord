@@ -140,6 +140,30 @@
   border-top: 1px solid #202225;
 }
 
+.btn-delete-channel {
+  margin-right: auto;
+  padding: 10px 16px;
+  background: transparent;
+  color: #ed4245;
+  border: 1px solid rgba(237, 66, 69, 0.4);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.btn-delete-channel:hover:not(:disabled) {
+  background: #ed4245;
+  color: #fff;
+  border-color: #ed4245;
+}
+
+.btn-delete-channel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .btn-cancel {
   padding: 10px 20px;
   background: transparent;

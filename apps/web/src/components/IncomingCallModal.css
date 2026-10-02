@@ -1,0 +1,150 @@
+/* ── Incoming Call Modal / Overlay ─────────────────────────────────────── */
+.incoming-call-overlay {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  z-index: 99999;
+  animation: slideInDown 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.incoming-call-card {
+  width: 340px;
+  background: rgba(30, 31, 34, 0.94);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(88, 101, 242, 0.2);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.incoming-call-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #5865f2, #23a55a, #5865f2);
+  background-size: 200% 100%;
+  animation: gradientShift 2s linear infinite;
+}
+
+@keyframes gradientShift {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+.incoming-call-avatar-wrapper {
+  position: relative;
+  margin-bottom: 12px;
+}
+
+.incoming-call-avatar-pulse {
+  position: absolute;
+  top: -6px;
+  left: -6px;
+  right: -6px;
+  bottom: -6px;
+  border-radius: 50%;
+  border: 2px solid #23a55a;
+  animation: avatarPulse 1.6s cubic-bezier(0.24, 0, 0.38, 1) infinite;
+  pointer-events: none;
+}
+
+@keyframes avatarPulse {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.9;
+  }
+  70% {
+    transform: scale(1.25);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.3);
+    opacity: 0;
+  }
+}
+
+.incoming-call-info h4 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: #f2f3f5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 280px;
+}
+
+.incoming-call-subtitle {
+  margin: 4px 0 18px 0;
+  font-size: 13px;
+  color: #949ba4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.incoming-call-actions {
+  display: flex;
+  gap: 14px;
+  width: 100%;
+}
+
+.incoming-call-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.incoming-call-btn.accept {
+  background: #23a55a;
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(35, 165, 90, 0.35);
+}
+
+.incoming-call-btn.accept:hover {
+  background: #1f9450;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(35, 165, 90, 0.45);
+}
+
+.incoming-call-btn.reject {
+  background: #da373c;
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(218, 55, 60, 0.35);
+}
+
+.incoming-call-btn.reject:hover {
+  background: #c03135;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(218, 55, 60, 0.45);
+}

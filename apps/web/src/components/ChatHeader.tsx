@@ -1,4 +1,4 @@
-import { Hash, MessageCircle, Volume2, Search, X, Menu, Users } from 'lucide-react';
+import { Hash, MessageCircle, Volume2, Search, X, Menu, Users, Phone, PhoneOff, Video } from 'lucide-react';
 
 export interface ChatHeaderProps {
   viewMode: 'channels' | 'dms';
@@ -12,6 +12,9 @@ export interface ChatHeaderProps {
   onClearSearch: () => void;
   isMembersSidebarOpen?: boolean;
   onToggleMembersSidebar?: () => void;
+  onStartCall?: (isVideo: boolean) => void;
+  isInDmCall?: boolean;
+  onEndDmCall?: () => void;
 }
 
 export function ChatHeader({
@@ -26,6 +29,9 @@ export function ChatHeader({
   onClearSearch,
   isMembersSidebarOpen,
   onToggleMembersSidebar,
+  onStartCall,
+  isInDmCall,
+  onEndDmCall,
 }: ChatHeaderProps) {
   return (
     <header className="chat-header">
@@ -60,6 +66,57 @@ export function ChatHeader({
           </nav>
           <MessageCircle size={22} className="channel-icon" aria-hidden="true" />
           <h3>{dmDisplayName}</h3>
+        </div>
+      )}
+
+      {viewMode === 'dms' && dmDisplayName && (
+        <div className="dm-call-controls" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {isInDmCall ? (
+            <>
+              <span style={{ fontSize: '13px', color: '#23a55a', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#23a55a', display: 'inline-block' }} />
+                Em chamada
+              </span>
+              {onEndDmCall && (
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={onEndDmCall}
+                  aria-label="Desconectar chamada"
+                  title="Desconectar chamada"
+                  style={{ color: '#ffffff', background: '#da373c', borderRadius: '4px', padding: '6px 10px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', border: 'none', cursor: 'pointer' }}
+                >
+                  <PhoneOff size={16} />
+                  <span>Desconectar</span>
+                </button>
+              )}
+            </>
+          ) : (
+            onStartCall && (
+              <>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={() => onStartCall(false)}
+                  aria-label="Iniciar chamada de voz"
+                  title="Iniciar chamada de voz"
+                  style={{ color: '#b5bac1', padding: '6px', borderRadius: '4px', background: 'transparent', border: 'none', cursor: 'pointer' }}
+                >
+                  <Phone size={19} />
+                </button>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={() => onStartCall(true)}
+                  aria-label="Iniciar chamada de vídeo"
+                  title="Iniciar chamada de vídeo"
+                  style={{ color: '#b5bac1', padding: '6px', borderRadius: '4px', background: 'transparent', border: 'none', cursor: 'pointer' }}
+                >
+                  <Video size={19} />
+                </button>
+              </>
+            )
+          )}
         </div>
       )}
 

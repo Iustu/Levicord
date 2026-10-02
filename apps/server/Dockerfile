@@ -20,7 +20,7 @@ COPY . .
 WORKDIR /app
 RUN pnpm --filter @discord-clone/shared build
 WORKDIR /app/apps/server
-RUN pnpm build && pnpm exec prisma generate
+RUN pnpm exec prisma generate && pnpm build
 
 EXPOSE 3000
 

@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { getChannels, createChannel, updateChannel, getChannelMessages, canAccessChannel, searchMessages, deleteMessage } from '../services/channel.service';
+import { getChannels, createChannel, updateChannel, deleteChannel, getChannelMessages, canAccessChannel, searchMessages, deleteMessage } from '../services/channel.service';
 import { isAdmin } from '../services/auth.service';
 import { requireAuth, getAuthUserId } from '../lib/auth';
 
@@ -11,7 +11,7 @@ export default async function channelRoutes(fastify: FastifyInstance) {
   fastify.get<{ Querystring: { limit?: number; offset?: number; serverId?: string } }>('/', async (request) => {
     const limit = Math.min(Number(request.query.limit ?? 100), 200);
     const offset = Number(request.query.offset ?? 0);
-    const serverId = request.query.serverId;
+    const serverId = request.query.serverId ?? null;
     const userId = getAuthUserId(request);
     const userIsAdmin = await isAdmin(userId);
     return getChannels(userId, userIsAdmin, limit, offset, serverId);
@@ -50,21 +50,37 @@ export default async function channelRoutes(fastify: FastifyInstance) {
 
   fastify.put<{ Params: { id: string }; Body: { name: string; description?: string } }>(
     '/:id',
-    { schema: createChannelSchema, preHandler: requireAdmin },
+    { schema: createChannelSchema },
     async (request, reply) => {
       try {
         const { id } = request.params;
+        const userId = getAuthUserId(request);
         const { name, description } = request.body;
-        return await updateChannel(id, name, description);
-      } catch (error: unknown) {
-        // P2025 = Prisma "Record not found"
-        if ((error as { code?: string }).code === 'P2025') {
+        return await updateChannel(id, userId, { name, description });
+      } catch (error: any) {
+        const msg = error.message || 'Erro ao atualizar canal';
+        if (msg.includes('não encontrado') || (error as { code?: string }).code === 'P2025') {
           return reply.code(404).send({ message: 'Channel not found' });
         }
-        throw error;
+        return reply.code(403).send({ message: msg });
       }
     },
   );
+
+  fastify.delete<{ Params: { id: string } }>('/:id', async (request, reply) => {
+    try {
+      const { id } = request.params;
+      const userId = getAuthUserId(request);
+      const result = await deleteChannel(id, userId);
+      return reply.code(200).send(result);
+    } catch (error: any) {
+      const msg = error.message || 'Erro ao excluir canal';
+      if (msg.includes('não encontrado')) {
+        return reply.code(404).send({ message: msg });
+      }
+      return reply.code(403).send({ message: msg });
+    }
+  });
 
   fastify.get<{ Params: { id: string }; Querystring: { q: string } }>(
     '/:id/messages/search',

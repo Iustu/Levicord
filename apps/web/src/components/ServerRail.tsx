@@ -11,6 +11,7 @@ interface ServerRailProps {
   onOpenJoinServer: () => void;
   onOpenSuperAdmin: () => void;
   currentUser: User | null;
+  isSuperAdmin?: boolean;
 }
 
 export const ServerRail: React.FC<ServerRailProps> = ({
@@ -21,10 +22,13 @@ export const ServerRail: React.FC<ServerRailProps> = ({
   onOpenJoinServer,
   onOpenSuperAdmin,
   currentUser,
+  isSuperAdmin: propIsSuperAdmin,
 }) => {
   const isSuperAdmin =
-    currentUser?.role === 'SUPERADMIN' ||
-    currentUser?.email?.toLowerCase() === 'joaoprf2001@gmail.com';
+    propIsSuperAdmin !== undefined
+      ? propIsSuperAdmin
+      : currentUser?.role === 'SUPERADMIN' ||
+        currentUser?.email?.toLowerCase() === 'joaoprf2001@gmail.com';
 
   const getInitials = (name: string) => {
     return name

@@ -75,4 +75,43 @@ describe('apiFetch', () => {
 
     await expect(fetchPromise).rejects.toThrow();
   });
+
+  it('omits Content-Type application/json when body is absent', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ success: true }),
+    });
+
+    await apiFetch('/api/servers/srv-1/invites', null, { method: 'POST' });
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/servers/srv-1/invites'),
+      expect.objectContaining({
+        headers: expect.not.objectContaining({
+          'Content-Type': 'application/json',
+        }),
+      }),
+    );
+  });
+
+  it('includes Content-Type application/json when body is present', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ success: true }),
+    });
+
+    await apiFetch('/api/servers/srv-1/invites', null, {
+      method: 'POST',
+      body: JSON.stringify({ maxUses: 5 }),
+    });
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/servers/srv-1/invites'),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          'Content-Type': 'application/json',
+        }),
+      }),
+    );
+  });
 });

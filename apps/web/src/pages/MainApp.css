@@ -193,12 +193,24 @@
   color: inherit;
   opacity: 0;
   cursor: pointer;
+  border-radius: 3px;
+  transition: opacity 0.15s, color 0.15s;
 }
 
 .channel-item:hover .channel-edit-btn,
 .channel-item.active .channel-edit-btn,
 .channel-edit-btn:focus-visible {
   opacity: 0.8;
+}
+
+.channel-edit-btn:hover {
+  opacity: 1;
+  color: #fff;
+}
+
+.channel-delete-btn:hover {
+  opacity: 1;
+  color: #ed4245;
 }
 
 .channel-icon {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import type { UserRole } from '@discord-clone/shared';
 import { API_BASE } from '../lib/api';
 import { useChatStore } from '../stores/useChatStore';
 
@@ -9,6 +10,7 @@ export interface SessionUser {
   email?: string;
   displayName: string;
   avatarUrl?: string | null;
+  role?: UserRole;
 }
 
 /**
@@ -45,6 +47,7 @@ export function useSession() {
             email: data.user.email,
             displayName: data.user.displayName,
             avatarUrl: data.user.avatarUrl,
+            role: data.user.role,
           });
         }
       })
@@ -66,7 +69,7 @@ export function useSession() {
       cancelled = true;
       window.removeEventListener('auth_unauthorized', handleUnauthorized);
     };
-  }, [location, navigate, setCurrentUserId, setCurrentUser]);
+  }, [location.pathname, navigate, setCurrentUserId, setCurrentUser]);
 
   return { token, setToken, isLoading };
 }

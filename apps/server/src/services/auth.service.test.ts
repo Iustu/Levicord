@@ -30,18 +30,18 @@ describe('Auth Service', () => {
 
       const mockPrisma = {
         user: {
-          findUnique: vi.fn().mockResolvedValue({ role: 'ADMIN' }),
+          findUnique: vi.fn().mockResolvedValue({ role: 'SUPERADMIN' }),
         },
       } as unknown as PrismaClient;
 
-      const result = await isAdmin('admin-user', mockPrisma, mockRedis);
+      const result = await isAdmin('super-user', mockPrisma, mockRedis);
 
       expect(result).toBe(true);
       expect(mockPrisma.user.findUnique).toHaveBeenCalledWith({
-        where: { id: 'admin-user' },
+        where: { id: 'super-user' },
         select: { role: true, email: true },
       });
-      expect(mockRedis.set).toHaveBeenCalledWith('admin:admin-user', '1', 'EX', 10);
+      expect(mockRedis.set).toHaveBeenCalledWith('admin:super-user', '1', 'EX', 10);
     });
 
     it('should return false for regular USER role and cache "0"', async () => {

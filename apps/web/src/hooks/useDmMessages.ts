@@ -17,6 +17,8 @@ interface UseDmMessagesReturn {
   retry: () => void;
 }
 
+const EMPTY_DM_MESSAGES: DirectMessage[] = [];
+
 /**
  * Fetches and manages DM message state for a conversation.
  *
@@ -27,7 +29,7 @@ interface UseDmMessagesReturn {
  * (ESM Cap.5 — hooks should own a single cohesive concern)
  */
 export function useDmMessages({ token, dmUserId }: UseDmMessagesOptions): UseDmMessagesReturn {
-  const messages = useChatStore((state) => (dmUserId ? state.dms[dmUserId] ?? [] : []));
+  const messages = useChatStore((state) => (dmUserId ? state.dms[dmUserId] ?? EMPTY_DM_MESSAGES : EMPTY_DM_MESSAGES));
   const setDms = useChatStore((state) => state.setDms);
 
   const [isLoading, setIsLoading] = useState(false);

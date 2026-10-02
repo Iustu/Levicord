@@ -11,6 +11,7 @@ interface ChatInputProps {
   onSend: (content: string | null, attachment: UploadedAttachment | null) => void;
   onTypingStart?: () => void;
   onTypingStop?: () => void;
+  disabled?: boolean;
 }
 
 export interface UploadedAttachment {
@@ -21,7 +22,7 @@ export interface UploadedAttachment {
   mimeType: string;
 }
 
-export function ChatInput({ placeholder, token, onSend, onTypingStart, onTypingStop }: ChatInputProps) {
+export function ChatInput({ placeholder, token, onSend, onTypingStart, onTypingStop, disabled = false }: ChatInputProps) {
   const [inputText, setInputText] = useState('');
   const [pendingAttachment, setPendingAttachment] = useState<UploadedAttachment | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -164,7 +165,7 @@ export function ChatInput({ placeholder, token, onSend, onTypingStart, onTypingS
           type="button"
           className="attach-btn"
           onClick={() => fileInputRef.current?.click()}
-          disabled={isUploading}
+          disabled={disabled || isUploading}
           aria-label="Anexar arquivo"
           title="Anexar arquivo"
         >
@@ -178,6 +179,7 @@ export function ChatInput({ placeholder, token, onSend, onTypingStart, onTypingS
           onChange={handleInputChange}
           className="chat-input"
           maxLength={2000}
+          disabled={disabled}
           aria-label="Campo de mensagem"
         />
 
@@ -201,6 +203,7 @@ export function ChatInput({ placeholder, token, onSend, onTypingStart, onTypingS
           type="button"
           className="emoji-btn"
           onClick={() => setIsEmojiOpen((o) => !o)}
+          disabled={disabled}
           aria-label="Escolher emoji"
           title="Inserir emoji"
         >
@@ -210,7 +213,7 @@ export function ChatInput({ placeholder, token, onSend, onTypingStart, onTypingS
         <button
           type="submit"
           className="send-btn"
-          disabled={!canSend}
+          disabled={disabled || !canSend}
           aria-label="Enviar mensagem"
           title="Enviar"
         >

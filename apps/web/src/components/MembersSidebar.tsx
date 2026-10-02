@@ -123,7 +123,7 @@ export const MembersSidebar: React.FC<MembersSidebarProps> = ({
     setActionError(null);
     try {
       await apiFetch(`/api/servers/${serverId}/members/${targetUserId}/role`, null, {
-        method: 'POST',
+        method: 'PUT',
         body: JSON.stringify({ role: newRole }),
       });
       setSelectedMember(null);
@@ -154,10 +154,11 @@ export const MembersSidebar: React.FC<MembersSidebarProps> = ({
   };
 
   // ── Render Server Members View (if server is active) ────────────────────────
-  if (serverMembers && serverMembers.length > 0) {
-    const owners = serverMembers.filter((m) => m.role === 'OWNER');
-    const admins = serverMembers.filter((m) => m.role === 'ADMIN');
-    const regularMembers = serverMembers.filter((m) => m.role !== 'OWNER' && m.role !== 'ADMIN');
+  if (serverId) {
+    const list = serverMembers || [];
+    const owners = list.filter((m) => m.role === 'OWNER');
+    const admins = list.filter((m) => m.role === 'ADMIN');
+    const regularMembers = list.filter((m) => m.role !== 'OWNER' && m.role !== 'ADMIN');
 
     const renderMemberList = (list: Array<ServerMember & { user?: User }>) => (
       list.map((m) => {
@@ -327,25 +328,33 @@ export const MembersSidebar: React.FC<MembersSidebarProps> = ({
     return (
       <aside className="members-sidebar" aria-label="Membros do servidor">
         <div className="members-content">
-          {owners.length > 0 && (
-            <div className="members-group">
-              <h4 className="members-group-title">Dono — {owners.length}</h4>
-              {renderMemberList(owners)}
+          {list.length === 0 ? (
+            <div style={{ padding: '16px', color: '#949ba4', fontSize: '13px', textAlign: 'center' }}>
+              Nenhum membro encontrado.
             </div>
-          )}
+          ) : (
+            <>
+              {owners.length > 0 && (
+                <div className="members-group">
+                  <h4 className="members-group-title">Dono — {owners.length}</h4>
+                  {renderMemberList(owners)}
+                </div>
+              )}
 
-          {admins.length > 0 && (
-            <div className="members-group">
-              <h4 className="members-group-title">Administradores — {admins.length}</h4>
-              {renderMemberList(admins)}
-            </div>
-          )}
+              {admins.length > 0 && (
+                <div className="members-group">
+                  <h4 className="members-group-title">Administradores — {admins.length}</h4>
+                  {renderMemberList(admins)}
+                </div>
+              )}
 
-          {regularMembers.length > 0 && (
-            <div className="members-group">
-              <h4 className="members-group-title">Membros — {regularMembers.length}</h4>
-              {renderMemberList(regularMembers)}
-            </div>
+              {regularMembers.length > 0 && (
+                <div className="members-group">
+                  <h4 className="members-group-title">Membros — {regularMembers.length}</h4>
+                  {renderMemberList(regularMembers)}
+                </div>
+              )}
+            </>
           )}
         </div>
       </aside>

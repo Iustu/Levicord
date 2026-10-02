@@ -73,7 +73,7 @@ export async function isAdmin(userId: string, prisma: PrismaClient = defaultPris
     where: { id: userId },
     select: { role: true, email: true },
   });
-  const result = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN' || isRootSuperAdmin(user?.email);
+  const result = user?.role === 'SUPERADMIN' || (user?.email ? isRootSuperAdmin(user.email) : false);
   await redis.set(cacheKey, result ? '1' : '0', 'EX', ADMIN_CACHE_TTL);
   return result;
 }

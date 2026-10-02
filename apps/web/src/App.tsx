@@ -7,6 +7,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
 import MainApp from './pages/MainApp';
+import JoinInvite from './pages/JoinInvite';
 
 /** Maps route paths to human-readable page titles for the browser tab. */
 const PAGE_TITLES: Record<string, string> = {
@@ -50,6 +51,8 @@ function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/auth/callback" element={<AuthCallback />} />
+          <Route path="/join/:code" element={<JoinInvite />} />
+          <Route path="/invite/:code" element={<JoinInvite />} />
           <Route path="/setup" element={<ProtectedRoute><ProfileSetup /></ProtectedRoute>} />
           <Route path="/app" element={<ProtectedRoute><MainApp /></ProtectedRoute>} />
           <Route path="/" element={<Navigate to="/login" />} />

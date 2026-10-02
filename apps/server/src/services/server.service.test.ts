@@ -12,6 +12,8 @@ import {
   createInvite,
   joinServerByInvite,
   userHasAccessToPlatform,
+  createServerChannel,
+  getUserServers,
 } from './server.service';
 import type { PrismaClient } from '@prisma/client';
 
@@ -84,7 +86,7 @@ describe('Server Service', () => {
 
       const result = await getServer('srv-1', 'u-super', mockPrisma);
       expect(result.id).toBe('srv-1');
-      expect(result.currentUserRole).toBe('OWNER'); // Superadmin has total authority
+      expect(result.currentUserRole).toBeNull(); // Superadmin without server membership has no server-level role
     });
   });
 
@@ -337,6 +339,82 @@ describe('Server Service', () => {
 
       const hasAccess = await userHasAccessToPlatform('outsider-id', mockPrisma);
       expect(hasAccess).toBe(false);
+    });
+  });
+
+  describe('createServerChannel', () => {
+    it('should reject channel creation by regular member (non-admin)', async () => {
+      const mockPrisma = {
+        user: { findUnique: vi.fn().mockResolvedValue({ id: 'u-reg', role: 'USER', email: 'reg@test.com' }) },
+        serverMember: { findUnique: vi.fn().mockResolvedValue({ role: 'MEMBER' }) },
+        server: { findUnique: vi.fn().mockResolvedValue({ id: 'srv-1', ownerId: 'other-owner' }) },
+        channel: { create: vi.fn() },
+      } as unknown as PrismaClient;
+
+      await expect(
+        createServerChannel('srv-1', 'u-reg', { name: 'novo-canal', type: 'TEXT' }, mockPrisma)
+      ).rejects.toThrow('Sem permissão para criar canais neste servidor.');
+
+      expect(mockPrisma.channel.create).not.toHaveBeenCalled();
+    });
+
+    it('should allow channel creation by server admin / owner', async () => {
+      const mockPrisma = {
+        user: { findUnique: vi.fn().mockResolvedValue({ id: 'u-admin', role: 'USER', email: 'adm@test.com' }) },
+        serverMember: { findUnique: vi.fn().mockResolvedValue({ role: 'ADMIN' }) },
+        server: { findUnique: vi.fn().mockResolvedValue({ id: 'srv-1', ownerId: 'other-owner' }) },
+        channel: { create: vi.fn().mockResolvedValue({ id: 'ch-new', name: 'anuncios', type: 'TEXT' }) },
+        auditLog: { create: vi.fn().mockResolvedValue({ id: 'log-1' }) },
+      } as unknown as PrismaClient;
+
+      const result = await createServerChannel('srv-1', 'u-admin', { name: 'anuncios', type: 'TEXT' }, mockPrisma);
+      expect(result.id).toBe('ch-new');
+      expect(mockPrisma.channel.create).toHaveBeenCalled();
+      expect(mockPrisma.auditLog.create).toHaveBeenCalled();
+    });
+
+    it('should reject channel creation by global superadmin if not local server admin', async () => {
+      const mockPrisma = {
+        user: { findUnique: vi.fn().mockResolvedValue({ id: 'u-super', role: 'SUPERADMIN', email: 'super@test.com' }) },
+        serverMember: { findUnique: vi.fn().mockResolvedValue(null) },
+        server: { findUnique: vi.fn().mockResolvedValue({ id: 'srv-1', ownerId: 'other-owner' }) },
+        channel: { create: vi.fn() },
+      } as unknown as PrismaClient;
+
+      await expect(
+        createServerChannel('srv-1', 'u-super', { name: 'super-chat', type: 'TEXT' }, mockPrisma)
+      ).rejects.toThrow('Sem permissão para criar canais neste servidor.');
+      expect(mockPrisma.channel.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getUserServers', () => {
+    it('should return all servers when user is SuperAdmin', async () => {
+      const mockPrisma = {
+        user: { findUnique: vi.fn().mockResolvedValue({ id: 'u-super', role: 'SUPERADMIN', email: 'super@test.com' }) },
+        server: { findMany: vi.fn().mockResolvedValue([{ id: 'srv-1' }, { id: 'srv-2' }]) },
+      } as unknown as PrismaClient;
+
+      const servers = await getUserServers('u-super', mockPrisma);
+      expect(servers).toHaveLength(2);
+      expect(mockPrisma.server.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: {} })
+      );
+    });
+
+    it('should return only servers where user is a member for regular users', async () => {
+      const mockPrisma = {
+        user: { findUnique: vi.fn().mockResolvedValue({ id: 'u-regular', role: 'USER', email: 'reg@test.com' }) },
+        server: { findMany: vi.fn().mockResolvedValue([{ id: 'srv-1' }]) },
+      } as unknown as PrismaClient;
+
+      const servers = await getUserServers('u-regular', mockPrisma);
+      expect(servers).toHaveLength(1);
+      expect(mockPrisma.server.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { members: { some: { userId: 'u-regular' } } },
+        })
+      );
     });
   });
 });

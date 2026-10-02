@@ -19,7 +19,9 @@ function mockUseWebRTC(overrides: Partial<ReturnType<typeof webRtcHook.useWebRTC
   const defaults: ReturnType<typeof webRtcHook.useWebRTC> = {
     localStream: createMockStream(true),
     localStreamVersion: 0,
+    localScreenStream: null,
     remoteStreams: {},
+    remoteScreenStreams: {},
     isMuted: false,
     isVideoOff: false,
     isScreenSharing: false,
@@ -232,5 +234,65 @@ describe('WebRTCGrid Component', () => {
     fireEvent.click(screen.getByTestId('btn-confirm-screenshare'));
 
     expect(changeScreenShareQuality).toHaveBeenCalledWith('240p', 30);
+  });
+
+  it('renders centered and maximized screen share stage when local user is sharing', () => {
+    const mockScreen = createMockStream(true);
+
+    mockUseWebRTC({
+      isScreenSharing: true,
+      localScreenStream: mockScreen,
+    });
+
+    render(<WebRTCGrid channelId="chan-1" onDisconnect={onDisconnect} />);
+
+    expect(screen.getByText('Sua Transmissão')).toBeInTheDocument();
+    expect(screen.getByText('AO VIVO')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Tela Cheia' })).toBeInTheDocument();
+  });
+
+  it('renders centered and maximized screen share stage with remote user name when remote user is sharing', () => {
+    const mockScreen = createMockStream(true);
+
+    mockUseWebRTC({
+      screenSharerSocketId: 'socket-bob',
+      remoteScreenStreams: {
+        'socket-bob': mockScreen,
+      },
+      remoteStreams: {
+        'socket-bob': {
+          stream: createMockStream(true),
+          userId: 'user-2',
+        },
+      },
+    });
+
+    render(<WebRTCGrid channelId="chan-1" onDisconnect={onDisconnect} />);
+
+    expect(screen.getByText('Transmissão de Bob')).toBeInTheDocument();
+    expect(screen.getByText('AO VIVO')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Mutar Transmissão' })).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Volume da transmissão' })).toBeInTheDocument();
+  });
+
+  it('uses currentUser displayName and initial rather than generic V icon', () => {
+    useChatStore.setState({
+      currentUser: {
+        id: 'user-me',
+        email: 'bemsom@test.com',
+        displayName: 'Bemsom',
+        avatarUrl: null,
+      },
+    });
+
+    mockUseWebRTC({
+      isVideoOff: true,
+    });
+
+    render(<WebRTCGrid channelId="chan-1" onDisconnect={onDisconnect} />);
+
+    expect(screen.getByText('Bemsom (Você)')).toBeInTheDocument();
+    // Avatar overlay renders Bemsom's initial 'B', not 'V'
+    expect(screen.getByText('B')).toBeInTheDocument();
   });
 });

@@ -116,17 +116,26 @@ export async function getServer(serverId: string, userId: string, prisma: Prisma
 
   return {
     ...server,
-    currentUserRole: member?.role ?? (isGlobalSuper ? 'OWNER' : null),
+    currentUserRole: member?.role ?? (server.ownerId === userId ? 'OWNER' : null),
   };
 }
 
 export async function getUserServers(userId: string, prisma: PrismaClient = defaultPrisma) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { role: true, email: true },
+  });
+
+  const isSuper = user?.role === 'SUPERADMIN' || (user?.email ? isRootSuperAdmin(user.email) : false);
+
   return prisma.server.findMany({
-    where: {
-      members: {
-        some: { userId },
-      },
-    },
+    where: isSuper
+      ? {}
+      : {
+          members: {
+            some: { userId },
+          },
+        },
     include: {
       channels: {
         select: { id: true, name: true, type: true },
@@ -762,11 +771,10 @@ export async function createServerChannel(
   if (!server) throw new Error('Servidor não encontrado.');
   if (!actorUser) throw new Error('Usuário autor não encontrado.');
 
-  const isGlobalSuper = actorUser.role === 'SUPERADMIN' || isRootSuperAdmin(actorUser.email);
   const isServerAdmin = actorMember?.role === 'ADMIN' || actorMember?.role === 'OWNER' || actorId === server.ownerId;
 
-  if (!isGlobalSuper && !isServerAdmin) {
-    throw new Error('Sem permissão para criar canais neste servidor.');
+  if (!isServerAdmin) {
+    throw new Error('Sem permissão para criar canais neste servidor. Apenas administradores do servidor local podem criar canais.');
   }
 
   const channel = await prisma.channel.create({

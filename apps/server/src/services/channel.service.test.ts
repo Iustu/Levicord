@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { canAccessChannel, getChannels, getChannelMessages, searchMessages, createMessage, deleteMessage } from './channel.service';
+import { canAccessChannel, getChannels, getChannelMessages, searchMessages, createMessage, deleteMessage, deleteChannel, updateChannel } from './channel.service';
 import { decryptForServer, isEncrypted, encryptForServer } from '../lib/crypto';
 import type { PrismaClient } from '@prisma/client';
 
@@ -126,6 +126,60 @@ describe('Channel Service', () => {
         type: 'IMAGE',
       }]);
     });
+
+    it('should throw an error when author is not a member of the server', async () => {
+      const mockPrisma = {
+        channel: {
+          findUnique: vi.fn().mockResolvedValue({ id: 'ch-server', serverId: 'srv-1' }),
+        },
+        serverMember: {
+          findUnique: vi.fn().mockResolvedValue(null),
+        },
+      } as unknown as PrismaClient;
+
+      await expect(
+        createMessage('Olá!', 'super-admin-1', 'ch-server', undefined, mockPrisma)
+      ).rejects.toThrow('Você precisa ser membro deste servidor para enviar mensagens.');
+    });
+
+    it('should allow message when author is an invited member of the server', async () => {
+      const mockPrisma = {
+        channel: {
+          findUnique: vi.fn().mockResolvedValue({ id: 'ch-server', serverId: 'srv-1' }),
+        },
+        serverMember: {
+          findUnique: vi.fn().mockResolvedValue({ id: 'sm-1', serverId: 'srv-1', userId: 'user-1', role: 'MEMBER', mutedUntil: null }),
+        },
+        message: {
+          create: vi.fn().mockResolvedValue({ id: 'msg-1', content: 'test', authorId: 'user-1', channelId: 'ch-server' }),
+        },
+      } as unknown as PrismaClient;
+
+      const result = await createMessage('Olá!', 'user-1', 'ch-server', undefined, mockPrisma);
+      expect(result).toBeDefined();
+      expect(mockPrisma.message.create).toHaveBeenCalled();
+    });
+
+    it('should throw an error when author is muted in the server', async () => {
+      const mockPrisma = {
+        channel: {
+          findUnique: vi.fn().mockResolvedValue({ id: 'ch-server', serverId: 'srv-1' }),
+        },
+        serverMember: {
+          findUnique: vi.fn().mockResolvedValue({
+            id: 'sm-1',
+            serverId: 'srv-1',
+            userId: 'user-muted',
+            role: 'MEMBER',
+            mutedUntil: new Date(Date.now() + 600000).toISOString(),
+          }),
+        },
+      } as unknown as PrismaClient;
+
+      await expect(
+        createMessage('Mensagem enquanto mutado', 'user-muted', 'ch-server', undefined, mockPrisma)
+      ).rejects.toThrow('Você está mutado neste servidor.');
+    });
   });
 
   describe('getChannels', () => {
@@ -162,6 +216,52 @@ describe('Channel Service', () => {
 
       expect(mockPrisma.channel.findMany).toHaveBeenCalledWith({
         where: undefined,
+        orderBy: { order: 'asc' },
+        take: 100,
+        skip: 0,
+      });
+    });
+
+    it('should filter global channels strictly with serverId: null', async () => {
+      const mockPrisma = {
+        channel: {
+          findMany: vi.fn().mockResolvedValue([]),
+        },
+      } as unknown as PrismaClient;
+
+      await getChannels('user-1', false, 100, 0, null, mockPrisma);
+
+      expect(mockPrisma.channel.findMany).toHaveBeenCalledWith({
+        where: {
+          serverId: null,
+          OR: [
+            { isPrivate: false },
+            { members: { some: { userId: 'user-1' } } },
+          ],
+        },
+        orderBy: { order: 'asc' },
+        take: 100,
+        skip: 0,
+      });
+    });
+
+    it('should filter channels strictly by serverId when inside a server', async () => {
+      const mockPrisma = {
+        channel: {
+          findMany: vi.fn().mockResolvedValue([]),
+        },
+      } as unknown as PrismaClient;
+
+      await getChannels('user-1', false, 100, 0, 'server-xyz', mockPrisma);
+
+      expect(mockPrisma.channel.findMany).toHaveBeenCalledWith({
+        where: {
+          serverId: 'server-xyz',
+          OR: [
+            { isPrivate: false },
+            { members: { some: { userId: 'user-1' } } },
+          ],
+        },
         orderBy: { order: 'asc' },
         take: 100,
         skip: 0,
@@ -283,6 +383,160 @@ describe('Channel Service', () => {
       expect(searchResults).toHaveLength(1);
       expect(searchResults[0].id).toBe('msg-1');
       expect(searchResults[0].content).toBe('Relatório de vendas concluído');
+    });
+  });
+
+  describe('deleteChannel', () => {
+    it('should allow SuperAdmin to delete a global channel', async () => {
+      const mockPrisma = {
+        channel: {
+          findUnique: vi.fn().mockResolvedValue({ id: 'ch-global', name: 'anuncios', serverId: null }),
+          delete: vi.fn().mockResolvedValue({ id: 'ch-global' }),
+        },
+        user: {
+          findUnique: vi.fn().mockResolvedValue({ id: 'super-1', role: 'SUPERADMIN', email: 'super@t.com' }),
+        },
+      } as unknown as PrismaClient;
+
+      const result = await deleteChannel('ch-global', 'super-1', mockPrisma);
+      expect(result.success).toBe(true);
+      expect(mockPrisma.channel.delete).toHaveBeenCalledWith({ where: { id: 'ch-global' } });
+    });
+
+    it('should reject deletion of global channel by regular user', async () => {
+      const mockPrisma = {
+        channel: {
+          findUnique: vi.fn().mockResolvedValue({ id: 'ch-global', name: 'anuncios', serverId: null }),
+          delete: vi.fn(),
+        },
+        user: {
+          findUnique: vi.fn().mockResolvedValue({ id: 'user-1', role: 'USER', email: 'u@t.com' }),
+        },
+      } as unknown as PrismaClient;
+
+      await expect(deleteChannel('ch-global', 'user-1', mockPrisma)).rejects.toThrow(
+        'Apenas SuperAdmins podem excluir canais globais.'
+      );
+      expect(mockPrisma.channel.delete).not.toHaveBeenCalled();
+    });
+
+    it('should allow server owner/admin to delete a server channel', async () => {
+      const mockPrisma = {
+        channel: {
+          findUnique: vi.fn().mockResolvedValue({ id: 'ch-srv-1', name: 'dev', serverId: 'srv-1' }),
+          delete: vi.fn().mockResolvedValue({ id: 'ch-srv-1' }),
+        },
+        user: {
+          findUnique: vi.fn().mockResolvedValue({ id: 'srv-owner', role: 'USER', email: 'o@t.com' }),
+        },
+        serverMember: {
+          findUnique: vi.fn().mockResolvedValue({ role: 'OWNER' }),
+        },
+        server: {
+          findUnique: vi.fn().mockResolvedValue({ ownerId: 'srv-owner' }),
+        },
+        auditLog: {
+          create: vi.fn().mockResolvedValue({ id: 'audit-1' }),
+        },
+      } as unknown as PrismaClient;
+
+      const result = await deleteChannel('ch-srv-1', 'srv-owner', mockPrisma);
+      expect(result.success).toBe(true);
+      expect(mockPrisma.channel.delete).toHaveBeenCalledWith({ where: { id: 'ch-srv-1' } });
+      expect(mockPrisma.auditLog.create).toHaveBeenCalled();
+    });
+
+    it('should reject deletion of server channel by regular server member', async () => {
+      const mockPrisma = {
+        channel: {
+          findUnique: vi.fn().mockResolvedValue({ id: 'ch-srv-1', name: 'dev', serverId: 'srv-1' }),
+          delete: vi.fn(),
+        },
+        user: {
+          findUnique: vi.fn().mockResolvedValue({ id: 'srv-member', role: 'USER', email: 'm@t.com' }),
+        },
+        serverMember: {
+          findUnique: vi.fn().mockResolvedValue({ role: 'MEMBER' }),
+        },
+        server: {
+          findUnique: vi.fn().mockResolvedValue({ ownerId: 'someone-else' }),
+        },
+      } as unknown as PrismaClient;
+
+      await expect(deleteChannel('ch-srv-1', 'srv-member', mockPrisma)).rejects.toThrow(
+        'Sem permissão para excluir canal neste servidor.'
+      );
+      expect(mockPrisma.channel.delete).not.toHaveBeenCalled();
+    });
+
+    it('should reject deletion of server channel by global superadmin if not local server admin', async () => {
+      const mockPrisma = {
+        channel: {
+          findUnique: vi.fn().mockResolvedValue({ id: 'ch-srv-1', name: 'dev', serverId: 'srv-1' }),
+          delete: vi.fn(),
+        },
+        user: {
+          findUnique: vi.fn().mockResolvedValue({ id: 'super-user', role: 'SUPERADMIN', email: 'super@levicord.uk' }),
+        },
+        serverMember: {
+          findUnique: vi.fn().mockResolvedValue(null),
+        },
+        server: {
+          findUnique: vi.fn().mockResolvedValue({ ownerId: 'someone-else' }),
+        },
+      } as unknown as PrismaClient;
+
+      await expect(deleteChannel('ch-srv-1', 'super-user', mockPrisma)).rejects.toThrow(
+        'Sem permissão para excluir canal neste servidor.'
+      );
+      expect(mockPrisma.channel.delete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('updateChannel', () => {
+    it('should allow local server admin (ADMIN role) to update server channel', async () => {
+      const mockPrisma = {
+        channel: {
+          findUnique: vi.fn().mockResolvedValue({ id: 'ch-srv-1', name: 'dev', serverId: 'srv-1' }),
+          update: vi.fn().mockResolvedValue({ id: 'ch-srv-1', name: 'dev-updated', description: 'Updated' }),
+        },
+        user: {
+          findUnique: vi.fn().mockResolvedValue({ id: 'adm-member', role: 'USER', email: 'adm@t.com' }),
+        },
+        serverMember: {
+          findUnique: vi.fn().mockResolvedValue({ role: 'ADMIN' }),
+        },
+        server: {
+          findUnique: vi.fn().mockResolvedValue({ ownerId: 'owner-id' }),
+        },
+      } as unknown as PrismaClient;
+
+      const result = await updateChannel('ch-srv-1', 'adm-member', { name: 'dev-updated', description: 'Updated' }, mockPrisma);
+      expect(result.name).toBe('dev-updated');
+      expect(mockPrisma.channel.update).toHaveBeenCalled();
+    });
+
+    it('should reject updating server channel by global superadmin if not local server admin', async () => {
+      const mockPrisma = {
+        channel: {
+          findUnique: vi.fn().mockResolvedValue({ id: 'ch-srv-1', name: 'dev', serverId: 'srv-1' }),
+          update: vi.fn(),
+        },
+        user: {
+          findUnique: vi.fn().mockResolvedValue({ id: 'super-user', role: 'SUPERADMIN', email: 'super@levicord.uk' }),
+        },
+        serverMember: {
+          findUnique: vi.fn().mockResolvedValue(null),
+        },
+        server: {
+          findUnique: vi.fn().mockResolvedValue({ ownerId: 'someone-else' }),
+        },
+      } as unknown as PrismaClient;
+
+      await expect(
+        updateChannel('ch-srv-1', 'super-user', { name: 'hacked' }, mockPrisma)
+      ).rejects.toThrow('Sem permissão para alterar canal neste servidor.');
+      expect(mockPrisma.channel.update).not.toHaveBeenCalled();
     });
   });
 });

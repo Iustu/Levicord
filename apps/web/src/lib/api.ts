@@ -20,12 +20,18 @@ export async function apiFetch<T>(
   const activeSignal = options.signal || controller?.signal;
 
   const executeRequest = async (): Promise<Response> => {
+    const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
+    const defaultHeaders: Record<string, string> = {};
+    if (options.body !== undefined && options.body !== null && !isFormData) {
+      defaultHeaders['Content-Type'] = 'application/json';
+    }
+
     return fetch(`${API_BASE}${path}`, {
       ...options,
       signal: activeSignal,
       credentials: 'include',
       headers: {
-        'Content-Type': 'application/json',
+        ...defaultHeaders,
         ...options.headers,
       },
     });
