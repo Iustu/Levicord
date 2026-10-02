@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Plus, Compass, Shield, MessageSquare } from 'lucide-react';
 import type { Server, User } from '@discord-clone/shared';
 import './ServerRail.css';
@@ -24,6 +24,8 @@ export const ServerRail: React.FC<ServerRailProps> = ({
   currentUser,
   isSuperAdmin: propIsSuperAdmin,
 }) => {
+  const [tooltip, setTooltip] = useState<{ text: string; top: number } | null>(null);
+
   const isSuperAdmin =
     propIsSuperAdmin !== undefined
       ? propIsSuperAdmin
@@ -39,6 +41,18 @@ export const ServerRail: React.FC<ServerRailProps> = ({
       .toUpperCase();
   };
 
+  const showTooltip = (e: React.MouseEvent<HTMLElement>, text: string) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    setTooltip({
+      text,
+      top: rect.top + rect.height / 2,
+    });
+  };
+
+  const hideTooltip = () => {
+    setTooltip(null);
+  };
+
   return (
     <nav className="server-rail" aria-label="Servidores">
       {/* Home / Direct Messages & Global Channels */}
@@ -50,6 +64,8 @@ export const ServerRail: React.FC<ServerRailProps> = ({
           type="button"
           className={`server-rail-btn home-btn ${activeServerId === null ? 'active' : ''}`}
           onClick={() => onSelectServer(null)}
+          onMouseEnter={(e) => showTooltip(e, 'Mensagens Diretas & Canais Globais')}
+          onMouseLeave={hideTooltip}
           title="Mensagens Diretas & Canais Globais"
           aria-label="Início / Mensagens Diretas"
         >
@@ -70,6 +86,8 @@ export const ServerRail: React.FC<ServerRailProps> = ({
                 type="button"
                 className={`server-rail-btn server-btn ${isActive ? 'active' : ''}`}
                 onClick={() => onSelectServer(server.id)}
+                onMouseEnter={(e) => showTooltip(e, server.name)}
+                onMouseLeave={hideTooltip}
                 title={server.name}
                 aria-label={`Servidor ${server.name}`}
               >
@@ -94,6 +112,8 @@ export const ServerRail: React.FC<ServerRailProps> = ({
             type="button"
             className="server-rail-btn action-btn join-btn"
             onClick={onOpenJoinServer}
+            onMouseEnter={(e) => showTooltip(e, 'Entrar em um Servidor')}
+            onMouseLeave={hideTooltip}
             title="Entrar em um Servidor (Código de Convite)"
             aria-label="Entrar em um servidor com código de convite"
           >
@@ -109,6 +129,8 @@ export const ServerRail: React.FC<ServerRailProps> = ({
               type="button"
               className="server-rail-btn action-btn add-btn"
               onClick={onOpenCreateServer}
+              onMouseEnter={(e) => showTooltip(e, 'Criar Novo Servidor')}
+              onMouseLeave={hideTooltip}
               title="Criar Novo Servidor (SuperAdmin)"
               aria-label="Criar novo servidor"
             >
@@ -127,6 +149,8 @@ export const ServerRail: React.FC<ServerRailProps> = ({
               type="button"
               className="server-rail-btn superadmin-btn"
               onClick={onOpenSuperAdmin}
+              onMouseEnter={(e) => showTooltip(e, 'Painel de SuperAdmin')}
+              onMouseLeave={hideTooltip}
               title="Painel de SuperAdmin (Gestão de Cargos Globais)"
               aria-label="Abrir painel de gestão de SuperAdmins"
             >
@@ -135,6 +159,18 @@ export const ServerRail: React.FC<ServerRailProps> = ({
           </div>
         </div>
       )}
+
+      {/* Floating Tooltip Component */}
+      {tooltip && (
+        <div
+          className="server-rail-floating-tooltip"
+          style={{ top: `${tooltip.top}px` }}
+          role="tooltip"
+        >
+          {tooltip.text}
+        </div>
+      )}
     </nav>
   );
 };
+

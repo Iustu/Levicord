@@ -1,8 +1,40 @@
-import { useRef, useState, useEffect } from 'react';
-import { Send, Paperclip, Loader2, X, Smile } from 'lucide-react';
+import { useRef, useState, useEffect, useCallback } from 'react';
+import { Send, Paperclip, Loader2, X, Smile, Search } from 'lucide-react';
 import { API_BASE } from '../lib/api';
 
-const QUICK_EMOJIS = ['😀', '😂', '😍', '🔥', '🎉', '👍', '❤️', '✨', '🚀', '👏', '🙌', '💯'];
+const EMOJI_CATEGORIES = [
+  {
+    name: 'Frequentes',
+    emojis: ['😀', '😂', '😍', '🔥', '🎉', '👍', '❤️', '✨', '🚀', '👏', '🙌', '💯'],
+  },
+  {
+    name: 'Expressões',
+    emojis: [
+      '😃', '😄', '😁', '😆', '😅', '🤣', '😉', '😊', '😇', '🥰', '😘', '😋',
+      '😜', '🤪', '😎', '🤩', '🥳', '😏', '🤔', '🫡', '🤐', '🤨', '😐', '😑',
+      '🙄', '😬', '🤥', '😌', '😔', '😪', '🤤', '😴', '😷', '🤒', '🤕', '🤢',
+      '🤮', '🤧', '🥵', '🥶', '🥴', '😵', '🤯', '🤠', '🥸', '🥺', '😢', '😭',
+      '😤', '😡', '😠', '🤬', '😈', '👿', '💀', '☠️', '💩', '🤡',
+    ],
+  },
+  {
+    name: 'Gestos',
+    emojis: [
+      '👋', '🤚', '🖐️', '✋', '🖖', '👌', '🤌', '🤏', '✌️', '🤞', '🫰', '🤟',
+      '🤘', '🤙', '👈', '👉', '👆', '🖕', '👇', '☝️', '👍', '👎', '✊', '👊',
+      '🤛', '🤜', '👏', '🙌', '👐', '🤲', '🤝', '🙏', '✍️', '💅', '💪', '🦾',
+    ],
+  },
+  {
+    name: 'Objetos & Símbolos',
+    emojis: [
+      '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '❣️', '💕',
+      '💞', '💓', '💗', '💖', '💘', '💝', '💟', '🔥', '💥', '✨', '🌟', '⭐',
+      '⚡', '☄️', '💫', '🎯', '🎉', '🎊', '🏆', '🥇', '🥈', '🥉', '🚀', '🛸',
+      '💡', '💬', '👀', '🧠', '☕', '🍕', '🍔', '🍺', '🎮', '💻', '🔒', '🔑',
+    ],
+  },
+];
 
 interface ChatInputProps {
   placeholder: string;
@@ -29,15 +61,31 @@ export function ChatInput({ placeholder, token, onSend, onTypingStart, onTypingS
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isEmojiOpen, setIsEmojiOpen] = useState(false);
+  const [activeCategory, setActiveCategory] = useState(0);
+  const [emojiSearch, setEmojiSearch] = useState('');
+
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const textInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const emojiPopoverRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isTypingRef = useRef(false);
+
+  // Auto-resize textarea to fit content up to 180px
+  const adjustHeight = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = 'auto';
+    const newHeight = Math.min(Math.max(textarea.scrollHeight, 24), 180);
+    textarea.style.height = `${newHeight}px`;
+  }, []);
 
   const handleSelectEmoji = (emoji: string) => {
     setInputText((prev) => prev + emoji);
     setIsEmojiOpen(false);
-    textInputRef.current?.focus();
+    setTimeout(() => {
+      textareaRef.current?.focus();
+      adjustHeight();
+    }, 0);
   };
 
   useEffect(() => {
@@ -47,8 +95,28 @@ export function ChatInput({ placeholder, token, onSend, onTypingStart, onTypingS
     };
   }, [onTypingStop]);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Close emoji picker on click outside or Escape
+  useEffect(() => {
+    if (!isEmojiOpen) return;
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (emojiPopoverRef.current && !emojiPopoverRef.current.contains(e.target as Node)) {
+        setIsEmojiOpen(false);
+      }
+    };
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsEmojiOpen(false);
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [isEmojiOpen]);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInputText(e.target.value);
+    adjustHeight();
 
     if (!isTypingRef.current) {
       isTypingRef.current = true;
@@ -60,6 +128,13 @@ export function ChatInput({ placeholder, token, onSend, onTypingStart, onTypingS
       isTypingRef.current = false;
       onTypingStop?.();
     }, 2000);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit(e);
+    }
   };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -119,9 +194,18 @@ export function ChatInput({ placeholder, token, onSend, onTypingStart, onTypingS
     setInputText('');
     setPendingAttachment(null);
     setUploadProgress(0);
+
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
   };
 
   const canSend = !!inputText.trim() || !!pendingAttachment;
+
+  // Filter emojis if search is active
+  const filteredEmojis = emojiSearch.trim()
+    ? EMOJI_CATEGORIES.flatMap((c) => c.emojis)
+    : EMOJI_CATEGORIES[activeCategory].emojis;
 
   return (
     <div className="chat-input-wrapper">
@@ -171,37 +255,75 @@ export function ChatInput({ placeholder, token, onSend, onTypingStart, onTypingS
         >
           {isUploading ? <Loader2 size={20} className="spinner" /> : <Paperclip size={20} />}
         </button>
-        <input
-          ref={textInputRef}
-          type="text"
+
+        <textarea
+          ref={textareaRef}
           placeholder={placeholder}
           value={inputText}
           onChange={handleInputChange}
+          onKeyDown={handleKeyDown}
           className="chat-input"
           maxLength={2000}
           disabled={disabled}
+          rows={1}
           aria-label="Campo de mensagem"
         />
 
         {isEmojiOpen && (
-          <div className="emoji-picker-popover" role="dialog" aria-label="Seletor de emojis">
-            {QUICK_EMOJIS.map((emoji) => (
-              <button
-                key={emoji}
-                type="button"
-                className="emoji-picker-item"
-                onClick={() => handleSelectEmoji(emoji)}
-                aria-label={`Inserir emoji ${emoji}`}
-              >
-                {emoji}
-              </button>
-            ))}
+          <div ref={emojiPopoverRef} className="emoji-picker-popover" role="dialog" aria-label="Seletor de emojis">
+            <div className="emoji-picker-header">
+              <div className="emoji-picker-search">
+                <Search size={14} className="emoji-search-icon" />
+                <input
+                  type="text"
+                  placeholder="Buscar emojis..."
+                  value={emojiSearch}
+                  onChange={(e) => setEmojiSearch(e.target.value)}
+                  className="emoji-search-input"
+                  autoFocus
+                />
+                {emojiSearch && (
+                  <button type="button" onClick={() => setEmojiSearch('')} className="emoji-search-clear">
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+              {!emojiSearch && (
+                <div className="emoji-picker-tabs">
+                  {EMOJI_CATEGORIES.map((cat, idx) => (
+                    <button
+                      key={cat.name}
+                      type="button"
+                      className={`emoji-tab-btn ${activeCategory === idx ? 'active' : ''}`}
+                      onClick={() => setActiveCategory(idx)}
+                    >
+                      {cat.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="emoji-picker-grid">
+              {filteredEmojis.map((emoji) => (
+                <button
+                  key={emoji}
+                  type="button"
+                  className="emoji-picker-item"
+                  onClick={() => handleSelectEmoji(emoji)}
+                  aria-label={`Inserir emoji ${emoji}`}
+                  title={emoji}
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
         <button
           type="button"
-          className="emoji-btn"
+          className={`emoji-btn ${isEmojiOpen ? 'active' : ''}`}
           onClick={() => setIsEmojiOpen((o) => !o)}
           disabled={disabled}
           aria-label="Escolher emoji"
@@ -223,3 +345,4 @@ export function ChatInput({ placeholder, token, onSend, onTypingStart, onTypingS
     </div>
   );
 }
+

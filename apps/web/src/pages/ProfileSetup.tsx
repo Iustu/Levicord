@@ -52,51 +52,31 @@ export default function ProfileSetup() {
   };
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        height: '100%',
-        width: '100%',
-        justifyContent: 'center',
-        alignItems: 'center',
-        backgroundColor: '#1e1f22',
-        color: '#f2f3f5',
-        textAlign: 'left',
-      }}
-    >
-      <form
-        onSubmit={handleSave}
-        style={{
-          padding: '40px',
-          backgroundColor: '#2b2d31',
-          borderRadius: '12px',
-          textAlign: 'left',
-          width: '420px',
-          maxWidth: '92%',
-          boxShadow: '0 16px 40px rgba(0, 0, 0, 0.5)',
-          border: '1px solid rgba(255, 255, 255, 0.06)',
-        }}
-      >
-        <h2 style={{ fontSize: '22px', fontWeight: 700, margin: '0 0 6px', color: '#f2f3f5', textAlign: 'left' }}>
+    <div className="auth-container">
+      <div className="auth-ambient-glow" aria-hidden="true" />
+      <div className="auth-ambient-glow-secondary" aria-hidden="true" />
+
+      <form onSubmit={handleSave} className="auth-card">
+        <h2 className="auth-title" style={{ marginBottom: '6px' }}>
           Configurar Perfil
         </h2>
-        <p style={{ fontSize: '14px', color: '#949ba4', margin: '0 0 24px', textAlign: 'left', lineHeight: '1.4' }}>
+        <p className="auth-subtitle" style={{ marginBottom: '24px' }}>
           Defina seu nome de exibição para começar no Levicord.
         </p>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '24px', textAlign: 'left' }}>
+        <div className="profile-avatar-row">
           <Avatar src={avatarUrl} name={displayName || 'Incógnita'} size={64} />
           <div>
-            <span style={{ fontSize: '14px', fontWeight: 600, color: '#f2f3f5', display: 'block', textAlign: 'left' }}>
+            <span className="profile-avatar-label">
               Foto de perfil
             </span>
-            <span style={{ fontSize: '12px', color: '#949ba4', display: 'block', marginTop: '2px', textAlign: 'left' }}>
+            <span className="profile-avatar-hint">
               Você pode personalizá-la depois nas configurações.
             </span>
           </div>
         </div>
 
-        <div style={{ marginBottom: '24px', textAlign: 'left' }}>
+        <div style={{ marginBottom: '24px' }}>
           <Input
             label="NOME DE EXIBIÇÃO"
             type="text"
@@ -110,7 +90,7 @@ export default function ProfileSetup() {
         </div>
 
         {error && (
-          <p role="alert" style={{ color: '#f23f43', fontSize: '13px', marginBottom: '16px', textAlign: 'left' }}>
+          <p role="alert" style={{ color: '#f23f43', fontSize: '13px', marginBottom: '16px' }}>
             {error}
           </p>
         )}
@@ -126,3 +106,4 @@ export default function ProfileSetup() {
     </div>
   );
 }
+

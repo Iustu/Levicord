@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useSession } from '../hooks/useSession';
+import './Auth.css';
 
 /**
  * Direct invite link handler (/join/:code or /invite/:code).
@@ -32,26 +33,22 @@ export default function JoinInvite() {
   }, [code, token, isLoading, navigate]);
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        height: '100vh',
-        width: '100%',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: '#1e1f22',
-        color: '#f2f3f5',
-        fontFamily: 'Inter, sans-serif',
-      }}
-    >
-      <div style={{ textAlign: 'center' }}>
-        <p style={{ fontSize: '18px', fontWeight: 600, marginBottom: '8px' }}>
-          Entrando no servidor...
-        </p>
-        <p style={{ fontSize: '14px', color: '#949ba4' }}>
-          Você será redirecionado em instantes.
-        </p>
+    <div className="auth-container">
+      <div className="auth-ambient-glow" />
+      <div className="auth-ambient-glow-secondary" />
+
+      <div className="auth-card" style={{ maxWidth: '400px' }}>
+        <div className="auth-redirect-box">
+          <div className="auth-spinner" />
+          <h2 className="auth-title" style={{ textAlign: 'center', marginBottom: '8px' }}>
+            Entrando no servidor...
+          </h2>
+          <p className="auth-subtitle" style={{ textAlign: 'center' }}>
+            Você será redirecionado em instantes.
+          </p>
+        </div>
       </div>
     </div>
   );
 }
+

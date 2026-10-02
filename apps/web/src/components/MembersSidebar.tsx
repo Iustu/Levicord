@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { User, ServerMember, ServerMemberRole } from '@discord-clone/shared';
 import { Avatar } from './Avatar';
 import { Shield, Crown, VolumeX, Volume2, UserMinus, Ban, MailX, MailCheck, MoreVertical, X } from 'lucide-react';
@@ -37,12 +37,25 @@ export const MembersSidebar: React.FC<MembersSidebarProps> = ({
   const [actionError, setActionError] = useState<string | null>(null);
   const [kickTargetId, setKickTargetId] = useState<string | null>(null);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSelectedMember(null);
+      }
+    };
+    if (selectedMember) {
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+    }
+  }, [selectedMember]);
+
   if (!isOpen) return null;
 
   const isUserOnline = (id: string) => {
     if (currentUser && id === currentUser.id) return true;
     return onlineUserIds.includes(id);
   };
+
 
   const canModerate = isSuperAdmin || currentUserRole === 'ADMIN' || currentUserRole === 'OWNER';
 
@@ -212,24 +225,15 @@ export const MembersSidebar: React.FC<MembersSidebarProps> = ({
 
             {/* Moderation Popover / Actions */}
             {selectedMember?.id === m.id && (
-              <div
-                style={{
-                  position: 'absolute',
-                  right: '10px',
-                  top: '40px',
-                  zIndex: 999,
-                  backgroundColor: '#111214',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
-                  borderRadius: '8px',
-                  padding: '12px',
-                  boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
-                  width: '240px',
-                  textAlign: 'left',
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', borderBottom: '1px solid #2b2d31', paddingBottom: '6px' }}>
-                  <strong style={{ fontSize: '13px', color: '#f2f3f5' }}>Moderar {u.displayName}</strong>
-                  <button type="button" onClick={() => setSelectedMember(null)} style={{ background: 'none', border: 'none', color: '#949ba4', cursor: 'pointer' }}>
+              <div className="moderation-dropdown" role="dialog" aria-label={`Moderar ${u.displayName}`}>
+                <div className="moderation-dropdown-header">
+                  <span className="moderation-dropdown-title">Moderar {u.displayName}</span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedMember(null)}
+                    className="moderation-close-btn"
+                    aria-label="Fechar painel de moderação"
+                  >
                     <X size={16} />
                   </button>
                 </div>
@@ -240,22 +244,23 @@ export const MembersSidebar: React.FC<MembersSidebarProps> = ({
                   </div>
                 )}
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <div className="moderation-action-list">
                   {isMuted ? (
                     <button
                       type="button"
                       disabled={actionLoading}
                       onClick={() => handleUnmute(u.id)}
-                      style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', borderRadius: '4px', backgroundColor: '#2b2d31', color: '#23a55a', border: 'none', cursor: 'pointer', fontSize: '12px' }}
+                      className="moderation-action-btn unmute-btn"
                     >
                       <Volume2 size={14} /> Desmutar Membro
                     </button>
                   ) : (
-                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    <div className="moderation-mute-row">
                       <select
                         value={muteMinutes}
                         onChange={(e) => setMuteMinutes(Number(e.target.value))}
-                        style={{ backgroundColor: '#2b2d31', color: '#dbdee1', border: '1px solid #383a40', borderRadius: '4px', padding: '4px', fontSize: '12px', flex: 1 }}
+                        className="moderation-select"
+                        aria-label="Duração do mute"
                       >
                         <option value={5}>5 min</option>
                         <option value={15}>15 min</option>
@@ -266,7 +271,7 @@ export const MembersSidebar: React.FC<MembersSidebarProps> = ({
                         type="button"
                         disabled={actionLoading}
                         onClick={() => handleMute(u.id, muteMinutes)}
-                        style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 8px', borderRadius: '4px', backgroundColor: '#e5a50a', color: '#000000', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}
+                        className="moderation-mute-confirm-btn"
                       >
                         <VolumeX size={14} /> Mutar
                       </button>
@@ -277,7 +282,7 @@ export const MembersSidebar: React.FC<MembersSidebarProps> = ({
                     type="button"
                     disabled={actionLoading}
                     onClick={() => handleKick(u.id)}
-                    style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', borderRadius: '4px', backgroundColor: '#2b2d31', color: '#f2f3f5', border: 'none', cursor: 'pointer', fontSize: '12px' }}
+                    className="moderation-action-btn"
                   >
                     <UserMinus size={14} color="#f0b232" /> Expulsar do Servidor
                   </button>
@@ -286,7 +291,7 @@ export const MembersSidebar: React.FC<MembersSidebarProps> = ({
                     type="button"
                     disabled={actionLoading}
                     onClick={() => handleBan(u.id)}
-                    style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', borderRadius: '4px', backgroundColor: '#2b2d31', color: '#ed4245', border: 'none', cursor: 'pointer', fontSize: '12px' }}
+                    className="moderation-action-btn ban-btn"
                   >
                     <Ban size={14} /> Banir do Servidor
                   </button>
@@ -296,7 +301,7 @@ export const MembersSidebar: React.FC<MembersSidebarProps> = ({
                       type="button"
                       disabled={actionLoading}
                       onClick={() => handleRoleChange(u.id, 'MEMBER')}
-                      style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', borderRadius: '4px', backgroundColor: '#2b2d31', color: '#949ba4', border: 'none', cursor: 'pointer', fontSize: '12px' }}
+                      className="moderation-action-btn"
                     >
                       <Shield size={14} /> Rebaixar para Membro
                     </button>
@@ -305,9 +310,9 @@ export const MembersSidebar: React.FC<MembersSidebarProps> = ({
                       type="button"
                       disabled={actionLoading}
                       onClick={() => handleRoleChange(u.id, 'ADMIN')}
-                      style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', borderRadius: '4px', backgroundColor: '#2b2d31', color: '#5865f2', border: 'none', cursor: 'pointer', fontSize: '12px' }}
+                      className="moderation-action-btn"
                     >
-                      <Shield size={14} /> Promover a Admin
+                      <Shield size={14} color="#5865f2" /> Promover a Admin
                     </button>
                   )}
 
@@ -315,7 +320,7 @@ export const MembersSidebar: React.FC<MembersSidebarProps> = ({
                     type="button"
                     disabled={actionLoading}
                     onClick={() => handleToggleInvite(u.id, m.canInvite === false ? true : false)}
-                    style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', borderRadius: '4px', backgroundColor: '#2b2d31', color: '#dbdee1', border: 'none', cursor: 'pointer', fontSize: '12px' }}
+                    className="moderation-action-btn"
                   >
                     {m.canInvite === false ? (
                       <><MailCheck size={14} color="#23a55a" /> Liberar Convites</>

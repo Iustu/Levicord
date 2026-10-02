@@ -1,7 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import type { RefObject } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Hash, Loader2, Copy, Check, Trash2 } from 'lucide-react';
+import { Hash, Loader2, Copy, Check, Trash2, X } from 'lucide-react';
 import { API_BASE } from '../lib/api';
 import { Avatar } from './Avatar';
 import type { Message, DirectMessage, User } from '@discord-clone/shared';
@@ -26,7 +26,10 @@ interface MessageListProps {
   isServerAdmin?: boolean;
 }
 
-function renderAttachment(att: { id?: string; url: string; type: string; fileName: string }) {
+function renderAttachment(
+  att: { id?: string; url: string; type: string; fileName: string },
+  onImageClick?: (url: string, fileName: string) => void
+) {
   const fullUrl = att.url.startsWith('/') ? `${API_BASE}${att.url}` : att.url;
   if (att.type === 'image') {
     return (
@@ -36,6 +39,8 @@ function renderAttachment(att: { id?: string; url: string; type: string; fileNam
         alt={att.fileName}
         className="msg-attachment-image"
         loading="lazy"
+        onClick={() => onImageClick?.(fullUrl, att.fileName)}
+        title="Clique para ampliar"
       />
     );
   }
@@ -48,6 +53,7 @@ function renderAttachment(att: { id?: string; url: string; type: string; fileNam
     </a>
   );
 }
+
 
 function formatMessageDateSeparator(dateString: string): string {
   const date = new Date(dateString);
@@ -96,6 +102,7 @@ interface MessageItemProps {
   canDelete?: boolean;
   onDelete?: (id: string) => void;
   attachments?: { id?: string; url: string; type: string; fileName: string }[];
+  onImageClick?: (url: string, fileName: string) => void;
 }
 
 /**
@@ -113,7 +120,9 @@ const MessageItem = React.memo(function MessageItem({
   canDelete = false,
   onDelete,
   attachments = [],
+  onImageClick,
 }: MessageItemProps) {
+
   const [copied, setCopied] = useState(false);
   const [reactions, setReactions] = useState<Record<string, number>>({});
 
@@ -247,9 +256,10 @@ const MessageItem = React.memo(function MessageItem({
             )}
             {attachments.length > 0 && (
               <div className="msg-attachments">
-                {attachments.map(renderAttachment)}
+                {attachments.map((att) => renderAttachment(att, onImageClick))}
               </div>
             )}
+
           </>
         )}
         {Object.keys(reactions).length > 0 && (
@@ -291,6 +301,17 @@ export function MessageList({
   isSuperAdmin,
   isServerAdmin,
 }: MessageListProps) {
+  const [previewImage, setPreviewImage] = useState<{ url: string; fileName: string } | null>(null);
+
+  useEffect(() => {
+    if (!previewImage) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPreviewImage(null);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [previewImage]);
+
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     if (e.currentTarget.scrollTop <= 24) onLoadOlder();
   };
@@ -386,6 +407,7 @@ export function MessageList({
                 canDelete={canDelete}
                 onDelete={onDeleteMessage}
                 attachments={msgAttachments}
+                onImageClick={(url, fileName) => setPreviewImage({ url, fileName })}
               />
             </React.Fragment>
           );
@@ -399,7 +421,47 @@ export function MessageList({
         </div>
       )}
 
+      {previewImage && (
+        <div
+          className="image-lightbox-backdrop"
+          onClick={() => setPreviewImage(null)}
+          role="dialog"
+          aria-label="Visualização de imagem em tamanho original"
+        >
+          <div className="image-lightbox-content" onClick={(e) => e.stopPropagation()}>
+            <img
+              src={previewImage.url}
+              alt={previewImage.fileName}
+              className="image-lightbox-img"
+            />
+            <div className="image-lightbox-toolbar">
+              <span className="image-lightbox-filename">{previewImage.fileName}</span>
+              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                <a
+                  href={previewImage.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="image-lightbox-action"
+                >
+                  Abrir no navegador
+                </a>
+                <button
+                  type="button"
+                  className="image-lightbox-close"
+                  onClick={() => setPreviewImage(null)}
+                  aria-label="Fechar visualização"
+                  title="Fechar (Esc)"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div ref={messagesEndRef} />
     </div>
   );
 }
+

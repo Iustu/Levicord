@@ -1,5 +1,20 @@
-import type { RefObject } from 'react';
-import { Hash, Plus, Pencil, Trash2, Volume2, Settings, LogOut, UserPlus, Server as ServerIcon } from 'lucide-react';
+import { useState, type RefObject } from 'react';
+import {
+  Hash,
+  Plus,
+  Pencil,
+  Trash2,
+  Volume2,
+  Settings,
+  LogOut,
+  UserPlus,
+  Server as ServerIcon,
+  ChevronDown,
+  ChevronRight,
+  Mic,
+  MicOff,
+  Headphones,
+} from 'lucide-react';
 import { Avatar } from './Avatar';
 import type { Channel, User, Server, ServerMemberRole } from '@discord-clone/shared';
 
@@ -52,6 +67,68 @@ export function Sidebar({
   canCreateChannel = false,
   onDeleteChannel,
 }: SidebarProps) {
+  const [textChannelsExpanded, setTextChannelsExpanded] = useState(true);
+  const [voiceChannelsExpanded, setVoiceChannelsExpanded] = useState(true);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isDeafened, setIsDeafened] = useState(false);
+
+  const textChannels = channels.filter((c) => c.type !== 'VOICE');
+  const voiceChannels = channels.filter((c) => c.type === 'VOICE');
+
+  const renderChannelItem = (channel: Channel) => (
+    <li
+      key={channel.id}
+      className={`channel-item ${activeChannelId === channel.id ? 'active' : ''}`}
+      onClick={() => onSelectChannel(channel)}
+      role="option"
+      aria-selected={activeChannelId === channel.id}
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSelectChannel(channel);
+        }
+      }}
+    >
+      {channel.type === 'VOICE' ? (
+        <Volume2 size={20} className="channel-icon" aria-hidden="true" />
+      ) : (
+        <Hash size={20} className="channel-icon" aria-hidden="true" />
+      )}
+      <span>{channel.name}</span>
+      {canCreateChannel && (
+        <div className="channel-actions" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+          <button
+            className="channel-edit-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              onEditChannel(channel);
+            }}
+            title="Editar canal"
+            aria-label={`Editar canal ${channel.name}`}
+          >
+            <Pencil size={14} />
+          </button>
+          {onDeleteChannel && (
+            <button
+              className="channel-edit-btn channel-delete-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (window.confirm(`Tem certeza que deseja excluir o canal "#${channel.name}"? Esta ação não pode ser desfeita.`)) {
+                  onDeleteChannel(channel.id);
+                }
+              }}
+              title="Excluir canal"
+              aria-label={`Excluir canal ${channel.name}`}
+            >
+              <Trash2 size={14} />
+            </button>
+          )}
+        </div>
+      )}
+    </li>
+  );
+
   return (
     <>
       {/* ── Sidebar overlay (mobile) ──────────────────────────────────── */}
@@ -139,59 +216,86 @@ export function Sidebar({
                   <button type="button" onClick={onRetryChannels}>Tentar novamente</button>
                 </div>
               )}
-              <ul className="channel-list" role="listbox" aria-label="Canais">
-                {channels.map((channel) => (
-                  <li
-                    key={channel.id}
-                    className={`channel-item ${activeChannelId === channel.id ? 'active' : ''}`}
-                    onClick={() => onSelectChannel(channel)}
-                    role="option"
-                    aria-selected={activeChannelId === channel.id}
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        onSelectChannel(channel);
-                      }
-                    }}
-                  >
-                    {channel.type === 'VOICE'
-                      ? <Volume2 size={20} className="channel-icon" aria-hidden="true" />
-                      : <Hash size={20} className="channel-icon" aria-hidden="true" />}
-                    <span>{channel.name}</span>
-                    {canCreateChannel && (
-                      <div className="channel-actions" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
-                        <button
-                          className="channel-edit-btn"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onEditChannel(channel);
-                          }}
-                          title="Editar canal"
-                          aria-label={`Editar canal ${channel.name}`}
-                        >
-                          <Pencil size={14} />
-                        </button>
-                        {onDeleteChannel && (
-                          <button
-                            className="channel-edit-btn channel-delete-btn"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (window.confirm(`Tem certeza que deseja excluir o canal "#${channel.name}"? Esta ação não pode ser desfeita.`)) {
-                                onDeleteChannel(channel.id);
-                              }
-                            }}
-                            title="Excluir canal"
-                            aria-label={`Excluir canal ${channel.name}`}
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        )}
-                      </div>
+
+              {/* Categorias de Canais (Texto e Voz) */}
+              <div className="channel-categories-container">
+                {/* Seção Canais de Texto */}
+                {textChannels.length > 0 && (
+                  <div className="channel-category-group">
+                    <div
+                      className="channel-category-header"
+                      onClick={() => setTextChannelsExpanded(!textChannelsExpanded)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setTextChannelsExpanded(!textChannelsExpanded);
+                        }
+                      }}
+                      title={textChannelsExpanded ? 'Recolher Canais de Texto' : 'Expandir Canais de Texto'}
+                    >
+                      {textChannelsExpanded ? (
+                        <ChevronDown size={14} className="chevron-icon" />
+                      ) : (
+                        <ChevronRight size={14} className="chevron-icon" />
+                      )}
+                      <span className="channel-category-title">
+                        Canais de Texto
+                        <span className="channel-category-count">({textChannels.length})</span>
+                      </span>
+                    </div>
+                    {textChannelsExpanded && (
+                      <ul className="channel-list" role="listbox" aria-label="Canais de Texto">
+                        {textChannels.map(renderChannelItem)}
+                      </ul>
                     )}
-                  </li>
-                ))}
-              </ul>
+                  </div>
+                )}
+
+                {/* Seção Canais de Voz */}
+                {voiceChannels.length > 0 && (
+                  <div className="channel-category-group">
+                    <div
+                      className="channel-category-header"
+                      onClick={() => setVoiceChannelsExpanded(!voiceChannelsExpanded)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setVoiceChannelsExpanded(!voiceChannelsExpanded);
+                        }
+                      }}
+                      title={voiceChannelsExpanded ? 'Recolher Canais de Voz' : 'Expandir Canais de Voz'}
+                    >
+                      {voiceChannelsExpanded ? (
+                        <ChevronDown size={14} className="chevron-icon" />
+                      ) : (
+                        <ChevronRight size={14} className="chevron-icon" />
+                      )}
+                      <span className="channel-category-title">
+                        Canais de Voz
+                        <span className="channel-category-count">({voiceChannels.length})</span>
+                      </span>
+                    </div>
+                    {voiceChannelsExpanded && (
+                      <ul className="channel-list" role="listbox" aria-label="Canais de Voz">
+                        {voiceChannels.map(renderChannelItem)}
+                      </ul>
+                    )}
+                  </div>
+                )}
+
+                {/* Se nenhum canal existir ainda */}
+                {channels.length === 0 && (
+                  <ul className="channel-list" role="listbox" aria-label="Canais">
+                    <li style={{ padding: '16px 8px', color: '#949ba4', fontSize: '13px', textAlign: 'center' }}>
+                      Nenhum canal disponível.
+                    </li>
+                  </ul>
+                )}
+              </div>
             </>
           ) : (
             <>
@@ -249,6 +353,24 @@ export function Sidebar({
           </div>
           <div className="user-panel-actions">
             <button
+              type="button"
+              className={`icon-btn audio-control-btn ${isMuted ? 'muted' : ''}`}
+              onClick={() => setIsMuted(!isMuted)}
+              title={isMuted ? 'Ativar microfone' : 'Desativar microfone'}
+              aria-label={isMuted ? 'Ativar microfone' : 'Desativar microfone'}
+            >
+              {isMuted ? <MicOff size={18} color="#ed4245" /> : <Mic size={18} />}
+            </button>
+            <button
+              type="button"
+              className={`icon-btn audio-control-btn ${isDeafened ? 'deafened' : ''}`}
+              onClick={() => setIsDeafened(!isDeafened)}
+              title={isDeafened ? 'Ativar áudio' : 'Silenciar áudio'}
+              aria-label={isDeafened ? 'Ativar áudio' : 'Silenciar áudio'}
+            >
+              <Headphones size={18} color={isDeafened ? '#ed4245' : undefined} />
+            </button>
+            <button
               className="icon-btn profile-settings-btn"
               onClick={onOpenProfile}
               title="Editar perfil"
@@ -270,3 +392,4 @@ export function Sidebar({
     </>
   );
 }
+

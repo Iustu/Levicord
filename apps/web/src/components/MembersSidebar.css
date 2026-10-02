@@ -118,3 +118,143 @@
     display: none;
   }
 }
+
+/* ── Moderation Popover / Dropdown ── */
+.moderation-dropdown {
+  position: absolute;
+  right: 8px;
+  top: 42px;
+  z-index: 999;
+  background-color: #111214;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 8px;
+  padding: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(0, 0, 0, 0.4);
+  width: 230px;
+  text-align: left;
+  animation: moderation-pop-in 0.14s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes moderation-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.moderation-dropdown-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 8px;
+}
+
+.moderation-dropdown-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f2f3f5;
+}
+
+.moderation-close-btn {
+  background: none;
+  border: none;
+  color: #949ba4;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border-radius: 4px;
+  transition: color 0.15s;
+}
+
+.moderation-close-btn:hover {
+  color: #f2f3f5;
+}
+
+.moderation-action-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.moderation-action-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 4px;
+  background-color: #2b2d31;
+  color: #dbdee1;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: background-color 0.15s, color 0.15s;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.moderation-action-btn:hover {
+  background-color: rgba(79, 84, 92, 0.4);
+  color: #ffffff;
+}
+
+.moderation-action-btn.unmute-btn {
+  color: #23a55a;
+}
+
+.moderation-action-btn.unmute-btn:hover {
+  background-color: rgba(35, 165, 90, 0.2);
+}
+
+.moderation-action-btn.ban-btn {
+  color: #ed4245;
+}
+
+.moderation-action-btn.ban-btn:hover {
+  background-color: rgba(237, 66, 69, 0.2);
+}
+
+.moderation-mute-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.moderation-select {
+  background-color: #2b2d31;
+  color: #dbdee1;
+  border: 1px solid #383a40;
+  border-radius: 4px;
+  padding: 5px 6px;
+  font-size: 12px;
+  flex: 1;
+  outline: none;
+}
+
+.moderation-mute-confirm-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  background-color: #f0b232;
+  color: #111214;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: filter 0.15s;
+}
+
+.moderation-mute-confirm-btn:hover {
+  filter: brightness(1.1);
+}
+
