@@ -26,32 +26,102 @@ interface MessageListProps {
   isServerAdmin?: boolean;
 }
 
-function renderAttachment(
-  att: { id?: string; url: string; type: string; fileName: string },
-  onImageClick?: (url: string, fileName: string) => void
-) {
+interface AttachmentData {
+  id?: string;
+  url: string;
+  type?: string;
+  fileName?: string;
+  mimeType?: string;
+  isOneTime?: boolean;
+}
+
+function MessageAttachmentItem({
+  att,
+  onImageClick,
+}: {
+  att: AttachmentData;
+  onImageClick?: (url: string, fileName: string) => void;
+}) {
+  const [revealed, setRevealed] = useState(!att.isOneTime);
   const fullUrl = att.url.startsWith('/') ? `${API_BASE}${att.url}` : att.url;
-  if (att.type === 'image') {
+  const fileName = att.fileName || 'Anexo';
+
+  const typeLower = (att.type || '').toLowerCase();
+  const isImage =
+    typeLower === 'image' ||
+    /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i.test(fileName) ||
+    /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i.test(att.url) ||
+    Boolean(att.mimeType?.startsWith('image/'));
+
+  const isVideo =
+    typeLower === 'video' ||
+    /\.(mp4|webm|ogg|mov)$/i.test(fileName) ||
+    /\.(mp4|webm|ogg|mov)$/i.test(att.url) ||
+    Boolean(att.mimeType?.startsWith('video/'));
+
+  if (isImage) {
+    if (att.isOneTime && !revealed) {
+      return (
+        <div className="msg-attachment-onetime-container" key={att.id || att.url}>
+          <div className="msg-attachment-blurred-wrapper">
+            <img
+              src={fullUrl}
+              alt="Foto com desfoque"
+              className="msg-attachment-image msg-attachment-blurred"
+              loading="lazy"
+            />
+            <div className="msg-attachment-onetime-overlay">
+              <div className="msg-attachment-onetime-badge">1x</div>
+              <span className="msg-attachment-onetime-title">Foto de visualização única</span>
+              <button
+                type="button"
+                className="btn-reveal-photo"
+                onClick={() => setRevealed(true)}
+              >
+                Revelar
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
-      <img
-        key={att.id || att.url}
-        src={fullUrl}
-        alt={att.fileName}
-        className="msg-attachment-image"
-        loading="lazy"
-        onClick={() => onImageClick?.(fullUrl, att.fileName)}
-        title="Clique para ampliar"
-      />
+      <div className="msg-attachment-image-container" key={att.id || att.url}>
+        {att.isOneTime && (
+          <div className="msg-attachment-revealed-tag">
+            <span className="onetime-tag-badge">1x</span>
+            <span>Foto revelada</span>
+          </div>
+        )}
+        <img
+          src={fullUrl}
+          alt={fileName}
+          className="msg-attachment-image"
+          loading="lazy"
+          onClick={() => onImageClick?.(fullUrl, fileName)}
+          title="Clique para ampliar"
+        />
+      </div>
     );
   }
-  if (att.type === 'video') {
+
+  if (isVideo) {
     return <video key={att.id || att.url} src={fullUrl} controls className="msg-attachment-video" />;
   }
+
   return (
     <a key={att.id || att.url} href={fullUrl} target="_blank" rel="noopener noreferrer" className="msg-attachment-file">
-      📎 {att.fileName}
+      📎 {fileName}
     </a>
   );
+}
+
+function renderAttachment(
+  att: AttachmentData,
+  onImageClick?: (url: string, fileName: string) => void
+) {
+  return <MessageAttachmentItem key={att.id || att.url} att={att} onImageClick={onImageClick} />;
 }
 
 
@@ -101,7 +171,7 @@ interface MessageItemProps {
   isDeleted?: boolean;
   canDelete?: boolean;
   onDelete?: (id: string) => void;
-  attachments?: { id?: string; url: string; type: string; fileName: string }[];
+  attachments?: AttachmentData[];
   onImageClick?: (url: string, fileName: string) => void;
 }
 
@@ -377,7 +447,7 @@ export function MessageList({
             : null;
           const showDateSeparator = !prevMsg || !isSameDay(prevMsg.createdAt, msg.createdAt);
           const isConsecutive = !showDateSeparator && prevAuthor?.id === author.id;
-          const msgAttachments = (msg as { attachments?: { id?: string; url: string; type: string; fileName: string }[] }).attachments || [];
+          const msgAttachments = (msg as { attachments?: AttachmentData[] }).attachments || [];
           const isDeleted = (msg as Message).isDeleted || false;
           const canDelete =
             !isDeleted &&

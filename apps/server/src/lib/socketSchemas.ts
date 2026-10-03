@@ -2,10 +2,11 @@ import { z } from 'zod';
 
 export const attachmentSchema = z.object({
   url: z.string().regex(/^\/uploads\//, 'Must be a relative upload path'),
-  type: z.enum(['image', 'video', 'file']),
+  type: z.enum(['image', 'video', 'file', 'IMAGE', 'VIDEO', 'FILE']),
   fileName: z.string().max(255),
   fileSize: z.number().positive(),
   mimeType: z.string().max(100),
+  isOneTime: z.boolean().optional(),
 });
 
 export const messageSchema = z.object({

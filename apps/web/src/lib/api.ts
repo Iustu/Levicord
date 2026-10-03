@@ -7,8 +7,6 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 let isRefreshing = false;
 let refreshPromise: Promise<boolean> | null = null;
-let refreshAbortController: AbortController | null = null;
-let refreshSubscribers = 0;
 
 export async function apiFetch<T>(
   path: string,
@@ -45,40 +43,18 @@ export async function apiFetch<T>(
         throw new DOMException('Aborted', 'AbortError');
       }
 
-      if (!isRefreshing) {
+      if (!isRefreshing || !refreshPromise) {
         isRefreshing = true;
-        refreshAbortController = new AbortController();
-        refreshSubscribers = 0;
-
         refreshPromise = fetch(`${API_BASE}/api/auth/refresh`, {
           method: 'POST',
           credentials: 'include',
-          signal: refreshAbortController.signal,
         })
           .then((r) => r.ok)
-          .catch((err) => {
-            if (err?.name === 'AbortError') return false;
-            return false;
-          })
+          .catch(() => false)
           .finally(() => {
             isRefreshing = false;
             refreshPromise = null;
-            refreshAbortController = null;
-            refreshSubscribers = 0;
           });
-      }
-
-      // Track subscriber to cancel in-flight refresh if all waiting callers abort
-      refreshSubscribers++;
-      const onAbort = () => {
-        refreshSubscribers--;
-        if (refreshSubscribers <= 0 && refreshAbortController) {
-          refreshAbortController.abort();
-        }
-      };
-
-      if (activeSignal) {
-        activeSignal.addEventListener('abort', onAbort, { once: true });
       }
 
       try {
@@ -86,10 +62,8 @@ export async function apiFetch<T>(
         if (refreshed && !activeSignal?.aborted) {
           res = await executeRequest();
         }
-      } finally {
-        if (activeSignal) {
-          activeSignal.removeEventListener('abort', onAbort);
-        }
+      } catch {
+        // proceed to error handling
       }
     }
 

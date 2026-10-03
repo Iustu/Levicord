@@ -34,7 +34,7 @@ describe('VoiceScreen', () => {
     expect(screen.getByText(/Conectando.../i)).toBeInTheDocument();
   });
 
-  it('disables join button and shows restriction notice when user is SuperAdmin in a server channel', () => {
+  it('disables join button and shows restriction notice when user is a non-member viewing a server channel (even as SuperAdmin)', () => {
     const onJoin = vi.fn();
     render(
       <VoiceScreen
@@ -42,18 +42,41 @@ describe('VoiceScreen', () => {
         onJoin={onJoin}
         isSuperAdmin={true}
         isServerChannel={true}
+        isNonMember={true}
       />
     );
 
     expect(
-      screen.getByText('não têm permissão para entrar em canais de voz')
+      screen.getByText(/não podem entrar em canais de voz deste servidor a não ser que sejam membros/i)
     ).toBeInTheDocument();
 
-    const joinBtn = screen.getByRole('button', { name: /Entrada não permitida para SuperAdmin/i });
+    const joinBtn = screen.getByRole('button', { name: /Entrada permitida apenas para membros/i });
     expect(joinBtn).toBeDisabled();
 
     fireEvent.click(joinBtn);
     expect(onJoin).not.toHaveBeenCalled();
+  });
+
+  it('enables join button when user is a SuperAdmin who IS a member of the server', () => {
+    const onJoin = vi.fn();
+    render(
+      <VoiceScreen
+        {...defaultProps}
+        onJoin={onJoin}
+        isSuperAdmin={true}
+        isServerChannel={true}
+        isNonMember={false}
+      />
+    );
+
+    expect(screen.queryByText(/não podem entrar em canais de voz/i)).not.toBeInTheDocument();
+
+    const joinBtn = screen.getByRole('button', { name: /Entrar na Chamada/i });
+    expect(joinBtn).toBeInTheDocument();
+    expect(joinBtn).not.toBeDisabled();
+
+    fireEvent.click(joinBtn);
+    expect(onJoin).toHaveBeenCalled();
   });
 
   it('renders WebRTCGrid when isInCall is true and passes onDisconnect', () => {

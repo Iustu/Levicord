@@ -32,6 +32,12 @@ enum ServerMemberRole {
   MEMBER
 }
 
+enum DmRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
@@ -54,6 +60,8 @@ model User {
   channelMembers        ChannelMember[]
   dmsSent               DirectMessage[] @relation("sender")
   dmsReceived           DirectMessage[] @relation("receiver")
+  dmRequestsSent        DmRequest[]     @relation("DmRequestsSent")
+  dmRequestsReceived    DmRequest[]     @relation("DmRequestsReceived")
 
   serversOwned          Server[]        @relation("ServerOwner")
   serverMembers         ServerMember[]
@@ -218,6 +226,7 @@ model Attachment {
   fileName  String
   fileSize  Int
   mimeType  String
+  isOneTime Boolean        @default(false)
   messageId String?
   dmId      String?
   message   Message?       @relation(fields: [messageId], references: [id])
@@ -225,4 +234,20 @@ model Attachment {
 
   @@index([messageId])
   @@index([dmId])
+}
+
+model DmRequest {
+  id         String          @id @default(cuid())
+  senderId   String
+  receiverId String
+  status     DmRequestStatus @default(PENDING)
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  sender     User            @relation("DmRequestsSent", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver   User            @relation("DmRequestsReceived", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@unique([senderId, receiverId])
+  @@index([receiverId, status])
+  @@index([senderId, status])
 }

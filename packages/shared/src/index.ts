@@ -82,6 +82,7 @@ export interface Attachment {
   fileName: string;
   fileSize: number;
   mimeType: string;
+  isOneTime?: boolean;
 }
 
 export interface Message {
@@ -109,4 +110,34 @@ export interface DirectMessage {
   receiverId: string;
   sender: User;
   attachments?: Attachment[];
+}
+
+export type DmRequestStatus = 'PENDING' | 'ACCEPTED' | 'REJECTED';
+
+export interface DmRequest {
+  id: string;
+  senderId: string;
+  receiverId: string;
+  status: DmRequestStatus;
+  createdAt: string;
+  updatedAt: string;
+  sender?: User;
+  receiver?: User;
+}
+
+export interface DmContact {
+  id: string;
+  displayName: string;
+  avatarUrl: string | null;
+  requestId?: string;
+  request?: {
+    id: string;
+    senderId: string;
+    receiverId: string;
+    status: DmRequestStatus;
+    createdAt: string;
+  };
+  isSender: boolean;
+  isReceiver: boolean;
+  status: DmRequestStatus;
 }

@@ -8,6 +8,7 @@ interface AttachmentPayload {
   fileName: string;
   fileSize: number;
   mimeType: string;
+  isOneTime?: boolean;
 }
 
 export function useSocket() {

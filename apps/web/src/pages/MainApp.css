@@ -1045,6 +1045,7 @@
 .pending-attachment {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   background: #2b2d31;
   border-radius: 4px 4px 0 0;
@@ -1054,11 +1055,95 @@
   border-bottom: 1px solid #1e1f22;
 }
 
-.pending-attachment span {
+.pending-attachment-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow: hidden;
   flex: 1;
+}
+
+.pending-attachment-filename {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.onetime-toggle-badge-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 14px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #dbdee1;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  white-space: nowrap;
+}
+
+.onetime-toggle-badge-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.onetime-toggle-badge-btn.active {
+  background: #5865f2;
+  border-color: #5865f2;
+  color: #ffffff;
+  box-shadow: 0 0 10px rgba(88, 101, 242, 0.45);
+}
+
+.onetime-circle-pill {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.onetime-quick-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+}
+
+.onetime-icon-circle {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px dashed #b5bac1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 800;
+  color: #b5bac1;
+  transition: all 0.2s ease;
+}
+
+.onetime-quick-btn:hover .onetime-icon-circle {
+  border-style: solid;
+  border-color: #ffffff;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.onetime-quick-btn.active .onetime-icon-circle {
+  border: 1.5px solid #5865f2;
+  background: #5865f2;
+  color: #ffffff;
+  box-shadow: 0 0 8px rgba(88, 101, 242, 0.5);
 }
 
 .pending-attachment button {
@@ -1080,22 +1165,161 @@
 .msg-attachments {
   display: flex;
   flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.msg-attachment-image-container {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 4px;
-  margin-top: 4px;
+}
+
+.msg-attachment-revealed-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #23a55a;
+  background: rgba(35, 165, 90, 0.12);
+  border: 1px solid rgba(35, 165, 90, 0.25);
+  border-radius: 12px;
+  padding: 2px 8px;
+  width: fit-content;
+}
+
+.onetime-tag-badge {
+  font-size: 9px;
+  font-weight: 800;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .msg-attachment-image {
   max-width: 400px;
   max-height: 300px;
-  border-radius: 4px;
+  border-radius: 8px;
   cursor: pointer;
   object-fit: contain;
   background: #2b2d31;
+  transition: transform 0.15s ease, filter 0.15s ease;
+}
+
+.msg-attachment-image:hover {
+  filter: brightness(1.05);
+}
+
+/* 1x One-time Blurred Attachment */
+.msg-attachment-onetime-container {
+  display: inline-block;
+  max-width: 400px;
+  border-radius: 10px;
+  overflow: hidden;
+  position: relative;
+  margin-top: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+
+.msg-attachment-blurred-wrapper {
+  position: relative;
+  width: 320px;
+  max-width: 100%;
+  height: 220px;
+  overflow: hidden;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #1e1f22;
+}
+
+.msg-attachment-image.msg-attachment-blurred {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  object-fit: cover;
+  filter: blur(28px) saturate(1.3);
+  transform: scale(1.2);
+  user-select: none;
+  pointer-events: none;
+}
+
+.msg-attachment-onetime-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(14, 15, 17, 0.65);
+  backdrop-filter: blur(8px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px;
+  text-align: center;
+  z-index: 2;
+}
+
+.msg-attachment-onetime-badge {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 2px dashed rgba(255, 255, 255, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 800;
+  color: #ffffff;
+  background: rgba(88, 101, 242, 0.35);
+  box-shadow: 0 0 16px rgba(88, 101, 242, 0.4);
+}
+
+.msg-attachment-onetime-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f2f3f5;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+.btn-reveal-photo {
+  background: linear-gradient(135deg, #5865f2 0%, #4752c4 100%);
+  color: #ffffff;
+  border: none;
+  border-radius: 20px;
+  padding: 7px 22px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-reveal-photo:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.12);
+  box-shadow: 0 6px 16px rgba(88, 101, 242, 0.45);
+}
+
+.btn-reveal-photo:active {
+  transform: translateY(0);
+  filter: brightness(0.95);
 }
 
 .msg-attachment-video {
   max-width: 400px;
-  border-radius: 4px;
+  border-radius: 8px;
 }
 
 .msg-attachment-file {
@@ -1105,15 +1329,17 @@
   background: #2b2d31;
   border: 1px solid #1e1f22;
   padding: 8px 12px;
-  border-radius: 4px;
+  border-radius: 6px;
   color: #00a8fc;
   text-decoration: none;
   font-size: 14px;
   width: fit-content;
+  transition: background 0.15s ease;
 }
 
 .msg-attachment-file:hover {
   text-decoration: underline;
+  background: #35373c;
 }
 
 /* Voice channel join screen */
@@ -1656,5 +1882,428 @@
   color: #f2f3f5;
   background: rgba(255, 255, 255, 0.1);
 }
+
+/* ── DM Invitation Card ─────────────────────────────────────────────────── */
+.dm-invitation-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  height: 100%;
+  padding: 32px 16px;
+  background-color: #313338;
+}
+
+.dm-invitation-card {
+  max-width: 480px;
+  width: 100%;
+  background: #2b2d31;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: 36px 28px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 16px;
+}
+
+.dm-invitation-avatar-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dm-invitation-badge {
+  position: absolute;
+  bottom: -4px;
+  right: -4px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 3px solid #2b2d31;
+}
+
+.dm-invitation-badge.pending {
+  background: #f0b232;
+  color: #111214;
+}
+
+.dm-invitation-badge.info {
+  background: #5865f2;
+  color: #ffffff;
+}
+
+.dm-invitation-badge.danger {
+  background: #da373c;
+  color: #ffffff;
+}
+
+.dm-invitation-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #f2f3f5;
+  margin: 0;
+}
+
+.dm-invitation-user {
+  font-size: 15px;
+  font-weight: 600;
+  color: #5865f2;
+}
+
+.dm-invitation-desc {
+  font-size: 14px;
+  line-height: 1.5;
+  color: #949ba4;
+  margin: 0;
+}
+
+.dm-invitation-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+  width: 100%;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.dm-btn-accept {
+  background: #23a55a;
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 14px;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 20px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: background 0.15s ease;
+}
+
+.dm-btn-accept:hover:not(:disabled) {
+  background: #1f8b4d;
+}
+
+.dm-btn-reject {
+  background: rgba(218, 55, 60, 0.15);
+  color: #fa777c;
+  border: 1px solid rgba(218, 55, 60, 0.3);
+  font-weight: 600;
+  font-size: 14px;
+  border-radius: 8px;
+  padding: 10px 20px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.15s ease;
+}
+
+.dm-btn-reject:hover:not(:disabled) {
+  background: rgba(218, 55, 60, 0.25);
+  border-color: rgba(218, 55, 60, 0.5);
+}
+
+.dm-btn-send {
+  background: #5865f2;
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 14px;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 22px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: background 0.15s ease;
+}
+
+.dm-btn-send:hover:not(:disabled) {
+  background: #4752c4;
+}
+
+.dm-btn-cancel {
+  background: rgba(255, 255, 255, 0.08);
+  color: #dbdee1;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  font-weight: 600;
+  font-size: 14px;
+  border-radius: 8px;
+  padding: 10px 20px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.15s ease;
+}
+
+.dm-btn-cancel:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.dm-btn-accept:disabled,
+.dm-btn-reject:disabled,
+.dm-btn-send:disabled,
+.dm-btn-cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ─── Camada WebRTC Persistente em Background / Fullscreen ────────────────── */
+.persistent-webrtc-layer {
+  width: 100%;
+  height: 100%;
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ─── Painel de Status de Voz Conectada na Sidebar (Estilo Discord) ────────── */
+.voice-connection-status-panel {
+  background-color: #111214;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.3);
+  gap: 8px;
+  box-sizing: border-box;
+}
+
+.voice-connection-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: background-color 0.15s ease;
+  user-select: none;
+}
+
+.voice-connection-info:hover {
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+.voice-status-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.voice-connected-icon {
+  color: #23a55a;
+  animation: pulse-voice-dot 2s infinite ease-in-out;
+  flex-shrink: 0;
+}
+
+@keyframes pulse-voice-dot {
+  0% { transform: scale(0.95); opacity: 0.8; }
+  50% { transform: scale(1.18); opacity: 1; }
+  100% { transform: scale(0.95); opacity: 0.8; }
+}
+
+.voice-connected-text {
+  font-size: 12px;
+  font-weight: 700;
+  color: #23a55a;
+  letter-spacing: 0.2px;
+}
+
+.voice-channel-name-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #949ba4;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.voice-channel-name-icon {
+  flex-shrink: 0;
+  color: #b5bac1;
+}
+
+.voice-channel-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.voice-server-name {
+  color: #80848e;
+  font-weight: 400;
+}
+
+.voice-disconnect-btn {
+  background: transparent;
+  border: none;
+  color: #b5bac1;
+  padding: 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.voice-disconnect-btn:hover {
+  background-color: #da373a;
+  color: #ffffff;
+}
+
+/* ─── Destaque no Canal de Voz Ativo na Lista de Canais ───────────────────── */
+.channel-item.voice-connected {
+  background-color: rgba(35, 165, 90, 0.1) !important;
+  color: #23a55a !important;
+}
+
+.channel-icon.active-voice {
+  color: #23a55a !important;
+}
+
+.channel-connected-pill {
+  font-size: 10px;
+  font-weight: 700;
+  color: #23a55a;
+  background: rgba(35, 165, 90, 0.16);
+  border: 1px solid rgba(35, 165, 90, 0.35);
+  padding: 1px 6px;
+  border-radius: 10px;
+  margin-left: auto;
+  margin-right: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  flex-shrink: 0;
+}
+
+/* ─── Floating Mini-Dock de Voz quando Navegando por Canais/DMs ────────────── */
+.floating-voice-minidock {
+  position: fixed;
+  bottom: 24px;
+  right: 28px;
+  background: rgba(17, 18, 20, 0.95);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(35, 165, 90, 0.35);
+  border-radius: 12px;
+  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7), 0 0 16px rgba(35, 165, 90, 0.2);
+  z-index: 1000;
+  animation: slideUpFade 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.floating-voice-minidock:hover {
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.85), 0 0 20px rgba(35, 165, 90, 0.35);
+  transform: translateY(-2px);
+}
+
+.floating-voice-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.floating-voice-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background-color: #23a55a;
+  box-shadow: 0 0 8px #23a55a;
+  animation: pulse-voice-dot 1.8s infinite ease-in-out;
+  flex-shrink: 0;
+}
+
+.floating-voice-text-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-width: 220px;
+  text-align: left;
+}
+
+.floating-voice-status-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #23a55a;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.floating-voice-channel-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f2f3f5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.floating-voice-server {
+  color: #949ba4;
+  font-weight: 400;
+  font-size: 12px;
+}
+
+.floating-voice-return-hint {
+  font-size: 12px;
+  color: #5865f2;
+  font-weight: 600;
+  padding: 4px 8px;
+  background: rgba(88, 101, 242, 0.15);
+  border-radius: 6px;
+  transition: background-color 0.15s ease, color 0.15s ease;
+  white-space: nowrap;
+}
+
+.floating-voice-info:hover .floating-voice-return-hint {
+  background: #5865f2;
+  color: #ffffff;
+}
+
+.floating-voice-disconnect-btn {
+  background: rgba(237, 66, 69, 0.12);
+  border: 1px solid rgba(237, 66, 69, 0.25);
+  color: #ed4245;
+  padding: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.floating-voice-disconnect-btn:hover {
+  background: #ed4245;
+  color: #ffffff;
+}
+
 
 

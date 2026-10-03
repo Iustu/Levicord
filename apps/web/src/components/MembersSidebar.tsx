@@ -20,7 +20,7 @@ export interface MembersSidebarProps {
 }
 
 export const MembersSidebar: React.FC<MembersSidebarProps> = ({
-  users,
+  users: _users,
   currentUser,
   onlineUserIds,
   isOpen,
@@ -49,7 +49,8 @@ export const MembersSidebar: React.FC<MembersSidebarProps> = ({
     }
   }, [selectedMember]);
 
-  if (!isOpen) return null;
+  // Canais globais não possuem aba de membros disponível e não devem expor usuários da plataforma
+  if (!isOpen || !serverId) return null;
 
   const isUserOnline = (id: string) => {
     if (currentUser && id === currentUser.id) return true;
@@ -384,96 +385,6 @@ export const MembersSidebar: React.FC<MembersSidebarProps> = ({
     );
   }
 
-  // ── Fallback: Regular Online / Offline List ──────────────────────────────────
-  const allUsersMap = new Map<string, User>();
-  if (currentUser) {
-    allUsersMap.set(currentUser.id, currentUser);
-  }
-  for (const u of users) {
-    if (!allUsersMap.has(u.id)) {
-      allUsersMap.set(u.id, u);
-    }
-  }
-
-  const allUsers = Array.from(allUsersMap.values());
-  const onlineUsers = allUsers.filter((u) => isUserOnline(u.id));
-  const offlineUsers = allUsers.filter((u) => !isUserOnline(u.id));
-
-  onlineUsers.sort((a, b) => a.displayName.localeCompare(b.displayName));
-  offlineUsers.sort((a, b) => a.displayName.localeCompare(b.displayName));
-
-  return (
-    <aside className="members-sidebar" aria-label="Membros do canal">
-      <div className="members-content">
-        {onlineUsers.length > 0 && (
-          <div className="members-group">
-            <h4 className="members-group-title">
-              Disponível — {onlineUsers.length}
-            </h4>
-            {onlineUsers.map((user) => {
-              const isSelf = currentUser?.id === user.id;
-              return (
-                <button
-                  key={user.id}
-                  className="member-item is-online"
-                  onClick={() => onSelectUser?.(user.id)}
-                  title={`${user.displayName} (Disponível)`}
-                >
-                  <div className="member-avatar-wrapper">
-                    <Avatar src={user.avatarUrl} name={user.displayName} size={32} />
-                    <span className="member-status-dot online" aria-hidden="true" />
-                  </div>
-                  <div className="member-info">
-                    <span className="member-name">
-                      {user.displayName}
-                      {isSelf && <span className="member-you-badge">(você)</span>}
-                    </span>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {offlineUsers.length > 0 && (
-          <div className="members-group">
-            <h4 className="members-group-title">
-              Offline — {offlineUsers.length}
-            </h4>
-            {offlineUsers.map((user) => {
-              return (
-                <button
-                  key={user.id}
-                  className="member-item"
-                  onClick={() => onSelectUser?.(user.id)}
-                  title={`${user.displayName} (Offline)`}
-                >
-                  <div className="member-avatar-wrapper">
-                    <Avatar src={user.avatarUrl} name={user.displayName} size={32} />
-                    <span className="member-status-dot offline" aria-hidden="true" />
-                  </div>
-                  <div className="member-info">
-                    <span className="member-name">{user.displayName}</span>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      <ConfirmModal
-        isOpen={Boolean(kickTargetId)}
-        title="Expulsar Membro"
-        message="Tem certeza que deseja expulsar este membro do servidor?"
-        confirmLabel="Expulsar"
-        cancelLabel="Cancelar"
-        danger
-        onClose={() => setKickTargetId(null)}
-        onConfirm={() => {
-          if (kickTargetId) executeKick(kickTargetId);
-        }}
-      />
-    </aside>
-  );
+  // Canais globais não devem ter aba de membros disponíveis e não expõem usuários da plataforma
+  return null;
 };

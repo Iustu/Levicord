@@ -18,6 +18,7 @@ import userRoutes from './routes/user.routes';
 import adminRoutes from './routes/admin.routes';
 import serverRoutes from './routes/server.routes';
 import webrtcRoutes from './routes/webrtc.routes';
+import dmRoutes from './routes/dm.routes';
 import { prisma } from './prisma';
 import { redis } from './lib/redis';
 import { checkMinioHealth } from './lib/minio';
@@ -48,6 +49,7 @@ export function buildApp(): FastifyInstance {
     throw new Error('FATAL: FRONTEND_URL must use HTTPS in production.');
   }
   const app = Fastify({
+    trustProxy: true,
     logger: isProduction
       ? {
           // (BSRS Cap.15) Structured JSON logs in production for SIEM ingestibility.
@@ -175,6 +177,7 @@ export function buildApp(): FastifyInstance {
     app.register(adminRoutes, { prefix: `${prefix}/admin` });
     app.register(serverRoutes, { prefix: `${prefix}/servers` });
     app.register(webrtcRoutes, { prefix: `${prefix}/webrtc` });
+    app.register(dmRoutes, { prefix: `${prefix}/dms` });
   };
 
   registerApiRoutes('/api/v1');

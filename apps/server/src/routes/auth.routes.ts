@@ -49,6 +49,36 @@ export default async function authRoutes(fastify: FastifyInstance) {
     try {
       const decoded = fastify.jwt.verify<{sub: string; exp?: number}>(refreshToken);
 
+      const isProduction = process.env.NODE_ENV === 'production';
+      const cookieOptions = {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: 'lax' as const,
+        path: '/',
+      };
+
+      // Check if this token was already rotated recently (concurrency grace period for parallel requests)
+      const rotatedKey = `rt_rotated:${refreshToken}`;
+      if (typeof redis.get === 'function') {
+        const rotatedData = await redis.get(rotatedKey);
+        if (rotatedData) {
+          try {
+            const { accessToken, refreshToken: newRt } = JSON.parse(rotatedData);
+            reply.setCookie('accessToken', accessToken, {
+              ...cookieOptions,
+              maxAge: 15 * 60,
+            });
+            reply.setCookie('refreshToken', newRt, {
+              ...cookieOptions,
+              maxAge: 7 * 24 * 60 * 60,
+            });
+            return { status: 'ok' };
+          } catch {
+            // ignore parsing error and proceed
+          }
+        }
+      }
+
       // (BSRS Cap.5 & Cap.7) Check if this token has already been revoked (single-use enforcement)
       const blocklistKey = `rt_blocklist:${refreshToken}`;
       const isRevoked = await redis.exists(blocklistKey);
@@ -64,14 +94,27 @@ export default async function authRoutes(fastify: FastifyInstance) {
       }
 
       const newAccessToken = fastify.jwt.sign({ sub: decoded.sub }, { expiresIn: '15m' });
-      
+      const newRefreshToken = fastify.jwt.sign({ sub: decoded.sub }, { expiresIn: '7d' });
+
+      // Store in rotatedKey for 30s grace window so in-flight concurrent requests don't fail
+      if (typeof redis.set === 'function') {
+        await redis.set(
+          rotatedKey,
+          JSON.stringify({ accessToken: newAccessToken, refreshToken: newRefreshToken }),
+          'EX',
+          30
+        );
+      }
+
       reply.setCookie('accessToken', newAccessToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        path: '/',
+        ...cookieOptions,
         maxAge: 15 * 60,
       });
+      reply.setCookie('refreshToken', newRefreshToken, {
+        ...cookieOptions,
+        maxAge: 7 * 24 * 60 * 60,
+      });
+
       return { status: 'ok' };
     } catch (err) {
       return reply.code(401).send({ message: 'Invalid refresh token' });
@@ -205,7 +248,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
       const cookieOptions = {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict' as const,
+        sameSite: 'lax' as const,
         path: '/',
       };
 

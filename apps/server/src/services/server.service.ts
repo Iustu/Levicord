@@ -843,8 +843,119 @@ export async function getServerAuditLogs(
   const hasMore = logs.length > limit;
   const page = hasMore ? logs.slice(0, limit) : logs;
 
-  return {
-    items: page,
-    nextCursor: hasMore ? page[page.length - 1].id : null,
-  };
-}
+    return {
+      items: page,
+      nextCursor: hasMore ? page[page.length - 1].id : null,
+    };
+  }
+
+  export async function deleteServer(
+    serverId: string,
+    userId: string,
+    prisma: PrismaClient = defaultPrisma
+  ) {
+    const [user, server] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, role: true, email: true },
+      }),
+      prisma.server.findUnique({
+        where: { id: serverId },
+        include: {
+          members: {
+            where: { userId },
+          },
+        },
+      }),
+    ]);
+
+    if (!server) {
+      throw new Error('Servidor não encontrado.');
+    }
+
+    const isGlobalSuper = user?.role === 'SUPERADMIN' || (user?.email ? isRootSuperAdmin(user.email) : false);
+    const isOwner = server.ownerId === userId || server.members?.[0]?.role === 'OWNER';
+
+    if (!isOwner && !isGlobalSuper) {
+      throw new Error('Apenas o criador do servidor ou um SuperAdmin podem excluir este servidor.');
+    }
+
+    return prisma.$transaction(async (tx) => {
+      // 1. Delete message attachments and messages for all channels in this server
+      const channels = await tx.channel.findMany({
+        where: { serverId },
+        select: { id: true },
+      });
+      const channelIds = channels.map((c) => c.id);
+
+      if (channelIds.length > 0) {
+        const messages = await tx.message.findMany({
+          where: { channelId: { in: channelIds } },
+          select: { id: true },
+        });
+        const messageIds = messages.map((m) => m.id);
+
+        if (messageIds.length > 0) {
+          await tx.attachment.deleteMany({
+            where: { messageId: { in: messageIds } },
+          });
+
+          await tx.message.deleteMany({
+            where: { id: { in: messageIds } },
+          });
+        }
+
+        await tx.channelMember.deleteMany({
+          where: { channelId: { in: channelIds } },
+        });
+
+        await tx.channel.deleteMany({
+          where: { id: { in: channelIds } },
+        });
+      }
+
+      // 2. Delete server invites
+      await tx.serverInvite.deleteMany({
+        where: { serverId },
+      });
+
+      // 3. Delete server bans
+      await tx.serverBan.deleteMany({
+        where: { serverId },
+      });
+
+      // 4. Delete audit logs
+      await tx.auditLog.deleteMany({
+        where: { serverId },
+      });
+
+      // 5. Delete server members
+      await tx.serverMember.deleteMany({
+        where: { serverId },
+      });
+
+      // 6. Delete server
+      await tx.server.delete({
+        where: { id: serverId },
+      });
+
+      return { success: true, id: serverId, name: server.name };
+    });
+  }
+
+  export async function getAllServersAdmin(prisma: PrismaClient = defaultPrisma) {
+    return prisma.server.findMany({
+      include: {
+        owner: {
+          select: { id: true, displayName: true, email: true, avatarUrl: true },
+        },
+        _count: {
+          select: {
+            members: true,
+            channels: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }

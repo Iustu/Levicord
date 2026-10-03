@@ -14,9 +14,11 @@ import {
   Mic,
   MicOff,
   Headphones,
+  Wifi,
+  PhoneOff,
 } from 'lucide-react';
 import { Avatar } from './Avatar';
-import type { Channel, User, Server, ServerMemberRole } from '@discord-clone/shared';
+import type { Channel, User, Server, ServerMemberRole, DmContact } from '@discord-clone/shared';
 
 export interface SidebarProps {
   isOpen: boolean;
@@ -33,6 +35,7 @@ export interface SidebarProps {
   channelsError: string | null;
   onRetryChannels: () => void;
   users: User[];
+  dmContacts?: DmContact[];
   activeDmUserId: string | null;
   onSelectDmUser: (userId: string) => void;
   currentUser: User | null;
@@ -41,6 +44,16 @@ export interface SidebarProps {
   activeServer?: (Server & { currentUserRole?: ServerMemberRole | null; allowMemberInvites?: boolean }) | null;
   onOpenInviteModal?: () => void;
   canCreateChannel?: boolean;
+  canDeleteServer?: boolean;
+  onDeleteServer?: () => void;
+  connectedVoice?: {
+    channelId: string;
+    channelName: string;
+    serverId: string | null;
+    serverName: string | null;
+  } | null;
+  onReturnToVoice?: () => void;
+  onDisconnectVoice?: () => void;
 }
 
 export function Sidebar({
@@ -57,6 +70,7 @@ export function Sidebar({
   channelsError,
   onRetryChannels,
   users,
+  dmContacts,
   activeDmUserId,
   onSelectDmUser,
   currentUser,
@@ -66,6 +80,11 @@ export function Sidebar({
   onOpenInviteModal,
   canCreateChannel = false,
   onDeleteChannel,
+  canDeleteServer = false,
+  onDeleteServer,
+  connectedVoice,
+  onReturnToVoice,
+  onDisconnectVoice,
 }: SidebarProps) {
   const [textChannelsExpanded, setTextChannelsExpanded] = useState(true);
   const [voiceChannelsExpanded, setVoiceChannelsExpanded] = useState(true);
@@ -75,28 +94,33 @@ export function Sidebar({
   const textChannels = channels.filter((c) => c.type !== 'VOICE');
   const voiceChannels = channels.filter((c) => c.type === 'VOICE');
 
-  const renderChannelItem = (channel: Channel) => (
-    <li
-      key={channel.id}
-      className={`channel-item ${activeChannelId === channel.id ? 'active' : ''}`}
-      onClick={() => onSelectChannel(channel)}
-      role="option"
-      aria-selected={activeChannelId === channel.id}
-      tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onSelectChannel(channel);
-        }
-      }}
-    >
-      {channel.type === 'VOICE' ? (
-        <Volume2 size={20} className="channel-icon" aria-hidden="true" />
-      ) : (
-        <Hash size={20} className="channel-icon" aria-hidden="true" />
-      )}
-      <span>{channel.name}</span>
-      {canCreateChannel && (
+  const renderChannelItem = (channel: Channel) => {
+    const isThisVoiceConnected = connectedVoice?.channelId === channel.id;
+    return (
+      <li
+        key={channel.id}
+        className={`channel-item ${activeChannelId === channel.id ? 'active' : ''} ${isThisVoiceConnected ? 'voice-connected' : ''}`}
+        onClick={() => onSelectChannel(channel)}
+        role="option"
+        aria-selected={activeChannelId === channel.id}
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onSelectChannel(channel);
+          }
+        }}
+      >
+        {channel.type === 'VOICE' ? (
+          <Volume2 size={20} className={`channel-icon ${isThisVoiceConnected ? 'active-voice' : ''}`} aria-hidden="true" />
+        ) : (
+          <Hash size={20} className="channel-icon" aria-hidden="true" />
+        )}
+        <span className="channel-name-text">{channel.name}</span>
+        {isThisVoiceConnected && (
+          <span className="channel-connected-pill">Conectado</span>
+        )}
+        {canCreateChannel && (
         <div className="channel-actions" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
           <button
             className="channel-edit-btn"
@@ -128,6 +152,7 @@ export function Sidebar({
       )}
     </li>
   );
+};
 
   return (
     <>
@@ -159,17 +184,33 @@ export function Sidebar({
             </span>
           </div>
 
-          {activeServer && onOpenInviteModal && (
-            <button
-              type="button"
-              className="icon-btn"
-              onClick={onOpenInviteModal}
-              title="Convidar pessoas para este servidor"
-              aria-label="Convidar pessoas"
-              style={{ color: '#5865f2' }}
-            >
-              <UserPlus size={18} />
-            </button>
+          {activeServer && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              {onOpenInviteModal && (
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={onOpenInviteModal}
+                  title="Convidar pessoas para este servidor"
+                  aria-label="Convidar pessoas"
+                  style={{ color: '#5865f2' }}
+                >
+                  <UserPlus size={18} />
+                </button>
+              )}
+              {canDeleteServer && onDeleteServer && (
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={onDeleteServer}
+                  title="Excluir este servidor"
+                  aria-label="Excluir servidor"
+                  style={{ color: '#da373c' }}
+                >
+                  <Trash2 size={18} />
+                </button>
+              )}
+            </div>
           )}
         </div>
 
@@ -301,30 +342,57 @@ export function Sidebar({
             <>
               <div className="channels-header"><span>MENSAGENS DIRETAS</span></div>
               <ul className="channel-list" role="listbox" aria-label="Mensagens Diretas">
-                {users.map((user) => (
+                {(Array.isArray(dmContacts) ? dmContacts : (Array.isArray(users) ? users : []).map(u => ({
+                  id: u.id,
+                  displayName: u.displayName,
+                  avatarUrl: u.avatarUrl,
+                  isSender: false,
+                  isReceiver: false,
+                  status: 'ACCEPTED' as const,
+                }))).map((contact) => (
                   <li
-                    key={user.id}
-                    className={`channel-item ${activeDmUserId === user.id ? 'active' : ''}`}
-                    onClick={() => onSelectDmUser(user.id)}
+                    key={contact.id}
+                    className={`channel-item ${activeDmUserId === contact.id ? 'active' : ''}`}
+                    onClick={() => onSelectDmUser(contact.id)}
                     role="option"
-                    aria-selected={activeDmUserId === user.id}
+                    aria-selected={activeDmUserId === contact.id}
                     tabIndex={0}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
-                        onSelectDmUser(user.id);
+                        onSelectDmUser(contact.id);
                       }
                     }}
+                    style={{ justifyContent: 'space-between' }}
                   >
-                    <Avatar src={user.avatarUrl} name={user.displayName} size={24} className="dm-avatar-small" />
-                    <span>{user.displayName}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                      <Avatar src={contact.avatarUrl} name={contact.displayName} size={24} className="dm-avatar-small" />
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {contact.displayName}
+                      </span>
+                    </div>
+                    {contact.status === 'PENDING' && (
+                      <span
+                        style={{
+                          fontSize: '10px',
+                          padding: '2px 6px',
+                          borderRadius: '8px',
+                          fontWeight: '600',
+                          backgroundColor: contact.isReceiver ? '#5865f2' : 'rgba(255, 255, 255, 0.08)',
+                          color: contact.isReceiver ? '#ffffff' : '#949ba4',
+                          flexShrink: 0,
+                        }}
+                      >
+                        {contact.isReceiver ? 'Convite' : 'Pendente'}
+                      </span>
+                    )}
                   </li>
                 ))}
-                {users.length === 0 && (
+                {(Array.isArray(dmContacts) ? dmContacts.length === 0 : (Array.isArray(users) ? users.length === 0 : true)) && (
                   <div className="empty-users">
-                    <p>Ainda não há outros utilizadores na plataforma.</p>
+                    <p>Nenhuma conversa direta ainda.</p>
                     <p style={{ marginTop: '4px', fontSize: '12px', color: 'var(--text-muted)' }}>
-                      Convide alguém para começar uma conversa.
+                      Abra a lista de membros de um servidor para enviar uma solicitação de conversa.
                     </p>
                   </div>
                 )}
@@ -332,6 +400,50 @@ export function Sidebar({
             </>
           )}
         </div>
+
+        {/* Painel Discord-style de Voz Conectada */}
+        {connectedVoice && (
+          <div className="voice-connection-status-panel">
+            <div
+              className="voice-connection-info"
+              onClick={onReturnToVoice}
+              title="Voltar para a chamada de voz em tela cheia"
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onReturnToVoice?.();
+                }
+              }}
+            >
+              <div className="voice-status-header">
+                <Wifi size={13} className="voice-connected-icon" />
+                <span className="voice-connected-text">Voz Conectada</span>
+              </div>
+              <div className="voice-channel-name-row">
+                <Volume2 size={13} className="voice-channel-name-icon" />
+                <span className="voice-channel-name-text">
+                  {connectedVoice.channelName}
+                  {connectedVoice.serverName && (
+                    <span className="voice-server-name"> / {connectedVoice.serverName}</span>
+                  )}
+                </span>
+              </div>
+            </div>
+            <div className="voice-connection-actions">
+              <button
+                type="button"
+                className="voice-disconnect-btn"
+                onClick={onDisconnectVoice}
+                title="Desconectar da chamada"
+                aria-label="Desconectar da chamada"
+              >
+                <PhoneOff size={16} />
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="user-panel">
           <div

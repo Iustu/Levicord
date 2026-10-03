@@ -28,6 +28,8 @@ function mockUseWebRTC(overrides: Partial<ReturnType<typeof webRtcHook.useWebRTC
     screenSharerSocketId: null,
     screenShareResolution: '720p',
     screenShareFps: 30,
+    isNoiseSuppressionEnabled: true,
+    toggleNoiseSuppression: vi.fn(),
     toggleMute: vi.fn(),
     toggleVideo: vi.fn(),
     startScreenShare: vi.fn(),

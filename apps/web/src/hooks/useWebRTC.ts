@@ -72,6 +72,40 @@ function applyHardwareAcceleratedCodecPreferences(transceiver: RTCRtpTransceiver
   }
 }
 
+/**
+ * Otimiza o SDP para chamadas de voz com múltiplos participantes (8+ peers).
+ * - useinbandfec=1: Ativa Forward Error Correction (recupera pacotes de áudio perdidos sem latência)
+ * - usedtx=1: Discontinuous Transmission (participantes em silêncio consomem ~0 kbps, poupando a rede)
+ * - maxaveragebitrate=32000: Garante voz cristalina em 32 kbps (7 peers usam apenas ~224 kbps total de upload)
+ */
+function optimizeSdpForVoice(sdp: string): string {
+  if (!sdp) return sdp;
+  const match = sdp.match(/a=rtpmap:(\d+)\s+opus\/48000\/2/i);
+  if (!match) return sdp;
+  const pt = match[1];
+
+  const fmtpRegex = new RegExp(`a=fmtp:${pt}\\s+(.*)`);
+  const fmtpMatch = sdp.match(fmtpRegex);
+
+  const desiredAdditions = ['useinbandfec=1', 'usedtx=1', 'maxaveragebitrate=32000'];
+
+  if (fmtpMatch) {
+    let params = fmtpMatch[1];
+    for (const param of desiredAdditions) {
+      const [key] = param.split('=');
+      if (!params.includes(key)) {
+        params += `;${param}`;
+      }
+    }
+    return sdp.replace(fmtpRegex, `a=fmtp:${pt} ${params}`);
+  } else {
+    return sdp.replace(
+      new RegExp(`(a=rtpmap:${pt}\\s+opus\/48000\/2\r?\n)`, 'i'),
+      `$1a=fmtp:${pt} minptime=10;useinbandfec=1;usedtx=1;maxaveragebitrate=32000\r\n`
+    );
+  }
+}
+
 export function useWebRTC(channelId: string | null, enabled: boolean) {
   const { socket } = useSocket();
   
@@ -90,11 +124,41 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
   const [screenShareFps, setScreenShareFps] = useState<ScreenShareFps>(30);
   const [error, setError] = useState<string | null>(null);
 
+  // Supressão de ruído / Anti-ruído nativo via WebRTC DSP (echoCancellation, noiseSuppression, autoGainControl)
+  const [isNoiseSuppressionEnabled, setIsNoiseSuppressionEnabled] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('levicord_noise_suppression');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+
+  // Trava de volume do Windows 11: AGC (Automatic Gain Control) desativado por padrão para impedir que o Chrome/Edge altere o slider de volume do Windows
+  const [isAutoGainControlEnabled, setIsAutoGainControlEnabled] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('levicord_auto_gain_control');
+      return saved !== null ? saved === 'true' : false; // Padrão falso para travar volume do SO
+    } catch {
+      return false;
+    }
+  });
+
+  const getAudioConstraints = (noiseSuppression: boolean, agc: boolean = isAutoGainControlEnabled): MediaTrackConstraints => ({
+    echoCancellation: true,
+    noiseSuppression: noiseSuppression,
+    autoGainControl: agc,
+    googAutoGainControl: agc,
+    googAutoGainControl2: agc,
+  } as unknown as MediaTrackConstraints);
+
   // OPT-06: versão do stream local para forçar re-render em mute/vídeo sem recriar o MediaStream
   const [localStreamVersion, setLocalStreamVersion] = useState(0);
 
   // OPT-03: Buffer de candidatos ICE por peer (previne falhas em redes de alta latência/NAT)
   const iceCandidateQueues = useRef<Record<string, RTCIceCandidateInit[]>>({});
+  const makingOfferRef = useRef<Record<string, boolean>>({});
+  const isNegotiatingRef = useRef<Record<string, boolean>>({});
 
   // Ref para a faixa de tela activa — permite parar e remover sem stale closure
   const screenTrackRef = useRef<MediaStreamTrack | null>(null);
@@ -115,9 +179,12 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
         await getOrFetchIceServers();
         let stream: MediaStream | null = null;
 
-        // Em canal de voz, inicia com áudio (vídeo desligado por padrão)
+        // Em canal de voz, inicia com áudio (vídeo desligado por padrão) com filtros DSP ativados
         try {
-          stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: getAudioConstraints(isNoiseSuppressionEnabled),
+            video: false,
+          });
           setIsMuted(false);
           setIsVideoOff(true);
         } catch (audioErr) {
@@ -156,6 +223,8 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
       Object.values(peersRef.current).forEach(peer => peer.close());
       peersRef.current = {};
       iceCandidateQueues.current = {};
+      makingOfferRef.current = {};
+      isNegotiatingRef.current = {};
       screenSendersRef.current.clear();
       screenAudioSendersRef.current.clear();
       setRemoteStreams({});
@@ -180,7 +249,7 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
      * addTrack (webcam e screen share) sem necessidade de recarregar a página.
      * (backlog_playbook.md — Tarefa 1.1)
      */
-    const createPeer = (targetSocketId: string, targetUserId: string) => {
+    const createPeer = (targetSocketId: string, targetUserId: string, isInitiator = false) => {
       // Reutiliza peer existente se ainda estiver aberto
       const existing = peersRef.current[targetSocketId];
       if (existing && existing.connectionState !== 'closed') {
@@ -194,13 +263,63 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
 
       let primaryStreamId: string | null = null;
 
-      if (localStreamRef.current && localStreamRef.current.getTracks().length > 0) {
-        localStreamRef.current.getTracks().forEach(track => {
-          peer.addTrack(track, localStreamRef.current!);
-        });
+      // ── ORDEM ESTRITA DE M-LINES (Unified Plan) ───────────────────────────
+      // m-line 0: Áudio de microfone (sempre o primeiro)
+      const audioTracks = localStreamRef.current ? localStreamRef.current.getAudioTracks() : [];
+      if (audioTracks.length > 0) {
+        const audioSender = peer.addTrack(audioTracks[0], localStreamRef.current!);
+        if (audioSender && typeof audioSender.getParameters === 'function') {
+          try {
+            const params = audioSender.getParameters();
+            if (params.encodings && params.encodings.length > 0) {
+              params.encodings[0].networkPriority = 'high';
+              params.encodings[0].priority = 'high';
+              params.encodings[0].maxBitrate = 40000; // 40 kbps Opus: voz cristalina com baixíssimo uso de upload
+              audioSender.setParameters(params);
+            }
+          } catch {}
+        }
+      } else if (typeof peer.addTransceiver === 'function') {
+        peer.addTransceiver('audio', { direction: 'recvonly' });
       }
 
-      // Se transmissão de tela estiver ativa, adiciona as faixas (vídeo e áudio de sistema) ao novo peer
+      peer.oniceconnectionstatechange = () => {
+        const state = peer.iceConnectionState;
+        if (state === 'failed') {
+          console.warn(`[WebRTC] ICE falhou com peer ${targetSocketId}, acionando restart ICE automático...`);
+          if (typeof peer.restartIce === 'function') {
+            try {
+              peer.restartIce();
+            } catch (err) {
+              console.warn('[WebRTC] restartIce falhou:', err);
+            }
+          }
+        }
+      };
+
+      // m-line 1: Vídeo de câmera (sempre o segundo)
+      const videoTracks = localStreamRef.current ? localStreamRef.current.getVideoTracks() : [];
+      if (videoTracks.length > 0) {
+        const vtSender = peer.addTrack(videoTracks[0], localStreamRef.current!);
+        if (typeof peer.getTransceivers === 'function') {
+          const tr = peer.getTransceivers().find(t => t.sender === vtSender);
+          if (tr) applyHardwareAcceleratedCodecPreferences(tr);
+        }
+        if (vtSender && typeof vtSender.getParameters === 'function') {
+          try {
+            const params = vtSender.getParameters();
+            if (params.encodings && params.encodings.length > 0) {
+              params.encodings[0].maxBitrate = 600000; // 600 kbps evita congestionamento em chamadas com múltiplos peers
+              vtSender.setParameters(params);
+            }
+          } catch {}
+        }
+      } else if (typeof peer.addTransceiver === 'function') {
+        const vt = peer.addTransceiver('video', { direction: 'recvonly' });
+        applyHardwareAcceleratedCodecPreferences(vt);
+      }
+
+      // m-line 2 (+ 3 se houver áudio): Faixas de transmissão de tela (se ativas)
       if (screenTrackRef.current) {
         const screenStream = new MediaStream([screenTrackRef.current]);
         if (screenAudioTrackRef.current) {
@@ -214,32 +333,18 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
         }
       }
 
-      // Garante transceivers para receber áudio e vídeo mesmo em modo ouvinte (sem microfone/câmera locais)
-      const existingAudio = peer.getTransceivers().find(t => t.receiver.track.kind === 'audio');
-      if (!existingAudio) {
-        peer.addTransceiver('audio', { direction: 'recvonly' });
-      }
-      let videoTransceiver = peer.getTransceivers().find(t => t.receiver.track.kind === 'video');
-      if (!videoTransceiver) {
-        videoTransceiver = peer.addTransceiver('video', { direction: 'recvonly' });
-      }
-      if (videoTransceiver) {
-        applyHardwareAcceleratedCodecPreferences(videoTransceiver);
-      }
-
-      let isNegotiating = false;
-
       // OPT-02 — Previne glare e race conditions com WebRTC 1.0 Perfect Negotiation
       peer.onnegotiationneeded = async () => {
-        if (peer.signalingState !== 'stable' || isNegotiating) return;
+        if (peer.signalingState !== 'stable' || isNegotiatingRef.current[targetSocketId]) return;
         try {
-          isNegotiating = true;
-          try {
-            await peer.setLocalDescription();
-          } catch {
-            const offer = await peer.createOffer();
-            await peer.setLocalDescription(offer);
-          }
+          isNegotiatingRef.current[targetSocketId] = true;
+          makingOfferRef.current[targetSocketId] = true;
+
+          const offer = await peer.createOffer();
+          if (peer.signalingState !== 'stable') return;
+          const optimizedSdp = optimizeSdpForVoice(offer.sdp || '');
+          await peer.setLocalDescription({ type: offer.type, sdp: optimizedSdp });
+
           if (peer.localDescription) {
             socket?.emit('webrtc_offer', {
               targetSocketId,
@@ -248,11 +353,35 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
             });
           }
         } catch (err) {
-          console.warn('Re-negociação falhou:', err);
+          console.warn('[WebRTC] Re-negociação falhou:', err);
         } finally {
-          isNegotiating = false;
+          makingOfferRef.current[targetSocketId] = false;
+          isNegotiatingRef.current[targetSocketId] = false;
         }
       };
+
+      if (isInitiator) {
+        // Dispara a oferta inicial de forma controlada
+        (async () => {
+          try {
+            isNegotiatingRef.current[targetSocketId] = true;
+            makingOfferRef.current[targetSocketId] = true;
+            const offer = await peer.createOffer();
+            const optimizedSdp = optimizeSdpForVoice(offer.sdp || '');
+            await peer.setLocalDescription({ type: offer.type, sdp: optimizedSdp });
+            socket?.emit('webrtc_offer', {
+              targetSocketId,
+              offer: peer.localDescription,
+              channelId,
+            });
+          } catch (err) {
+            console.warn('[WebRTC] Erro ao criar oferta inicial:', err);
+          } finally {
+            makingOfferRef.current[targetSocketId] = false;
+            isNegotiatingRef.current[targetSocketId] = false;
+          }
+        })();
+      }
 
       peer.onicecandidate = (event) => {
         if (event.candidate) {
@@ -370,45 +499,41 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
         try { existing.close(); } catch {}
         delete peersRef.current[socketId];
       }
-      const peer = createPeer(socketId, userId);
-      try {
-        const offer = await peer.createOffer();
-        await peer.setLocalDescription(offer);
-        socket.emit('webrtc_offer', { targetSocketId: socketId, offer, channelId });
-      } catch (err) {
-        console.warn('Erro ao criar oferta para novo usuário:', err);
-      }
+      createPeer(socketId, userId, true);
     };
 
     const handleOffer = async ({ fromSocketId, fromUserId, offer }: { fromSocketId: string; fromUserId: string; offer: RTCSessionDescriptionInit }) => {
+      isNegotiatingRef.current[fromSocketId] = true;
       let peer = peersRef.current[fromSocketId];
       if (!peer || peer.connectionState === 'closed') {
-        peer = createPeer(fromSocketId, fromUserId);
+        peer = createPeer(fromSocketId, fromUserId, false);
       }
 
       try {
         const isPolite = socket.id ? socket.id > fromSocketId : true;
-        const offerCollision = peer.signalingState !== 'stable';
-        if (offerCollision && !isPolite) {
-          console.warn('Colisão de oferta WebRTC ignorada pelo peer impolido');
-          return;
-        }
+        const offerCollision =
+          offer.type === 'offer' &&
+          (makingOfferRef.current[fromSocketId] || peer.signalingState !== 'stable');
 
         if (offerCollision) {
-          await Promise.all([
-            peer.setLocalDescription({ type: 'rollback' }),
-            peer.setRemoteDescription(new RTCSessionDescription(offer))
-          ]);
-        } else {
-          await peer.setRemoteDescription(new RTCSessionDescription(offer));
+          if (!isPolite) {
+            console.warn('[WebRTC] Colisão de oferta WebRTC ignorada pelo peer impolido');
+            return;
+          }
+
+          try {
+            await peer.setLocalDescription({ type: 'rollback' });
+          } catch (rbErr) {
+            console.warn('[WebRTC] Rollback error:', rbErr);
+          }
         }
 
-        try {
-          await peer.setLocalDescription();
-        } catch {
-          const answer = await peer.createAnswer();
-          await peer.setLocalDescription(answer);
-        }
+        isNegotiatingRef.current[fromSocketId] = true;
+        await peer.setRemoteDescription(new RTCSessionDescription(offer));
+
+        const answer = await peer.createAnswer();
+        const optimizedSdp = optimizeSdpForVoice(answer.sdp || '');
+        await peer.setLocalDescription({ type: answer.type, sdp: optimizedSdp });
 
         if (peer.localDescription) {
           socket.emit('webrtc_answer', { targetSocketId: fromSocketId, answer: peer.localDescription, channelId });
@@ -426,6 +551,8 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
         delete iceCandidateQueues.current[fromSocketId];
       } catch (err) {
         console.warn('Erro ao processar oferta WebRTC:', err);
+      } finally {
+        isNegotiatingRef.current[fromSocketId] = false;
       }
     };
 
@@ -479,6 +606,9 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
       }
       delete iceCandidateQueues.current[socketId];
       screenSendersRef.current.delete(socketId);
+      screenAudioSendersRef.current.delete(socketId);
+      delete isNegotiatingRef.current[socketId];
+      delete makingOfferRef.current[socketId];
       setRemoteStreams(prev => {
         if (!(socketId in prev)) return prev;
         const { [socketId]: _, ...rest } = prev;
@@ -570,13 +700,50 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
       setIsMuted(!audioTrack.enabled);
     } else {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: getAudioConstraints(isNoiseSuppressionEnabled),
+        });
         const newTrack = stream.getAudioTracks()[0];
         if (newTrack) {
           localStreamRef.current.addTrack(newTrack);
-          Object.values(peersRef.current).forEach(peer => {
-            peer.addTrack(newTrack, localStreamRef.current!);
-          });
+          for (const [id, peer] of Object.entries(peersRef.current)) {
+            if (peer.connectionState === 'closed') continue;
+            const screenAudioSender = screenAudioSendersRef.current.get(id);
+            const transceivers = typeof peer.getTransceivers === 'function' ? peer.getTransceivers() : [];
+            const audioTransceiver = transceivers.find(t =>
+              t.receiver.track.kind === 'audio' &&
+              (!screenAudioSender || t.sender !== screenAudioSender)
+            );
+
+            if (audioTransceiver) {
+              audioTransceiver.direction = 'sendrecv';
+              await audioTransceiver.sender.replaceTrack(newTrack);
+              if (typeof audioTransceiver.sender.getParameters === 'function') {
+                try {
+                  const params = audioTransceiver.sender.getParameters();
+                  if (params.encodings && params.encodings.length > 0) {
+                    params.encodings[0].networkPriority = 'high';
+                    params.encodings[0].priority = 'high';
+                    params.encodings[0].maxBitrate = 40000;
+                    audioTransceiver.sender.setParameters(params);
+                  }
+                } catch {}
+              }
+            } else {
+              const audioSender = peer.addTrack(newTrack, localStreamRef.current!);
+              if (audioSender && typeof audioSender.getParameters === 'function') {
+                try {
+                  const params = audioSender.getParameters();
+                  if (params.encodings && params.encodings.length > 0) {
+                    params.encodings[0].networkPriority = 'high';
+                    params.encodings[0].priority = 'high';
+                    params.encodings[0].maxBitrate = 40000;
+                    audioSender.setParameters(params);
+                  }
+                } catch {}
+              }
+            }
+          }
           // OPT-06: Notifica o React via contador sem recriar o MediaStream (evita flash)
           setLocalStreamVersion(v => v + 1);
           setIsMuted(false);
@@ -592,9 +759,8 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
    *
    * Quando a faixa já existe (câmera já foi ligada antes), apenas liga/desliga via
    * `enabled` — sem nova renegociação, sem duplicar faixas.
-   * Quando não existe faixa, usa `replaceTrack` nos senders existentes para evitar
-   * múltiplas faixas de vídeo na mesma conexão. Se não houver sender de vídeo ainda,
-   * addTrack + onnegotiationneeded cuida da renegociação.
+   * Quando não existe faixa, usa `replaceTrack` no transceiver de câmera existente (m-line 1)
+   * para preservar a ordem exata de m-lines no SDP e evitar renegociações desnecessárias.
    */
   const toggleVideo = async () => {
     if (!localStreamRef.current) return;
@@ -615,13 +781,20 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
 
       localStreamRef.current.addTrack(newTrack);
 
-      for (const peer of Object.values(peersRef.current)) {
-        const videoSender = peer.getSenders().find(s => s.track?.kind === 'video');
-        if (videoSender) {
-          // replaceTrack não dispara renegociação — mais eficiente
-          await videoSender.replaceTrack(newTrack);
+      for (const [id, peer] of Object.entries(peersRef.current)) {
+        if (peer.connectionState === 'closed') continue;
+
+        const screenSender = screenSendersRef.current.get(id);
+        const transceivers = typeof peer.getTransceivers === 'function' ? peer.getTransceivers() : [];
+        const videoTransceiver = transceivers.find(t =>
+          t.receiver.track.kind === 'video' &&
+          (!screenSender || t.sender !== screenSender)
+        );
+
+        if (videoTransceiver) {
+          videoTransceiver.direction = 'sendrecv';
+          await videoTransceiver.sender.replaceTrack(newTrack);
         } else {
-          // addTrack dispara onnegotiationneeded automaticamente
           peer.addTrack(newTrack, localStreamRef.current!);
         }
       }
@@ -808,6 +981,56 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
     setIsScreenSharing(false);
   };
 
+  /**
+   * Ativa / desativa a supressão de ruído no microfone em tempo real
+   * usando a API nativa applyConstraints do MediaStreamTrack
+   */
+  const toggleNoiseSuppression = async () => {
+    const nextVal = !isNoiseSuppressionEnabled;
+    setIsNoiseSuppressionEnabled(nextVal);
+    try {
+      localStorage.setItem('levicord_noise_suppression', String(nextVal));
+    } catch {
+      // ignore
+    }
+
+    if (localStreamRef.current) {
+      const audioTrack = localStreamRef.current.getAudioTracks()[0];
+      if (audioTrack && typeof audioTrack.applyConstraints === 'function') {
+        try {
+          await audioTrack.applyConstraints(getAudioConstraints(nextVal, isAutoGainControlEnabled));
+        } catch (err) {
+          console.warn('Erro ao aplicar constraints de supressão de ruído:', err);
+        }
+      }
+    }
+  };
+
+  /**
+   * Ativa / desativa o Ajuste Automático de Ganho (AGC) no microfone.
+   * Quando desligado, impede expressamente o Windows 11 de alterar o volume do microfone.
+   */
+  const toggleAutoGainControl = async () => {
+    const nextVal = !isAutoGainControlEnabled;
+    setIsAutoGainControlEnabled(nextVal);
+    try {
+      localStorage.setItem('levicord_auto_gain_control', String(nextVal));
+    } catch {
+      // ignore
+    }
+
+    if (localStreamRef.current) {
+      const audioTrack = localStreamRef.current.getAudioTracks()[0];
+      if (audioTrack && typeof audioTrack.applyConstraints === 'function') {
+        try {
+          await audioTrack.applyConstraints(getAudioConstraints(isNoiseSuppressionEnabled, nextVal));
+        } catch (err) {
+          console.warn('Erro ao aplicar constraints de AGC:', err);
+        }
+      }
+    }
+  };
+
   return {
     localStream,
     localStreamVersion,
@@ -820,6 +1043,10 @@ export function useWebRTC(channelId: string | null, enabled: boolean) {
     screenSharerSocketId,
     screenShareResolution,
     screenShareFps,
+    isNoiseSuppressionEnabled,
+    toggleNoiseSuppression,
+    isAutoGainControlEnabled,
+    toggleAutoGainControl,
     toggleMute,
     toggleVideo,
     startScreenShare,

@@ -262,7 +262,7 @@ export async function createMessage(
   content: string | null,
   authorId: string,
   channelId: string,
-  attachments?: { url: string; type: 'image' | 'video' | 'file' | 'IMAGE' | 'VIDEO' | 'FILE'; fileName: string; fileSize: number; mimeType: string }[],
+  attachments?: { url: string; type: 'image' | 'video' | 'file' | 'IMAGE' | 'VIDEO' | 'FILE'; fileName: string; fileSize: number; mimeType: string; isOneTime?: boolean }[],
   prisma: PrismaClient = defaultPrisma
 ) {
   let serverId: string | null | undefined = undefined;
@@ -276,14 +276,24 @@ export async function createMessage(
     if (channel) {
       serverId = channel.serverId;
       if (channel.serverId) {
+        let isMember = false;
         if (prisma.serverMember?.findUnique) {
           const member = await prisma.serverMember.findUnique({
             where: { serverId_userId: { serverId: channel.serverId, userId: authorId } },
           });
+          if (member) isMember = true;
+        }
 
-          if (!member) {
-            throw new Error('Você precisa ser membro deste servidor para enviar mensagens.');
-          }
+        if (!isMember && prisma.server?.findUnique) {
+          const server = await prisma.server.findUnique({
+            where: { id: channel.serverId },
+            select: { ownerId: true },
+          });
+          if (server?.ownerId === authorId) isMember = true;
+        }
+
+        if (!isMember) {
+          throw new Error('Você precisa ser membro deste servidor para enviar mensagens.');
         }
 
         const isMuted = await isUserMutedInServer(channel.serverId, authorId, prisma);
@@ -301,6 +311,7 @@ export async function createMessage(
         fileName: a.fileName,
         fileSize: a.fileSize,
         mimeType: a.mimeType,
+        isOneTime: Boolean(a.isOneTime),
       }))
     : undefined;
 

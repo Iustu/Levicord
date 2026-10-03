@@ -70,8 +70,8 @@ describe('MembersSidebar', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('renders online and offline sections with correct counts and names', () => {
-    render(
+  it('does not render when serverId is not provided (global channels privacy)', () => {
+    const { container } = render(
       <MembersSidebar
         users={users}
         currentUser={currentUser}
@@ -79,15 +79,28 @@ describe('MembersSidebar', () => {
         isOpen={true}
       />
     );
+    expect(container).toBeEmptyDOMElement();
+  });
 
-    expect(screen.getByText('Disponível — 2')).toBeInTheDocument(); // currentUser + Ana Silva
-    expect(screen.getByText('Offline — 1')).toBeInTheDocument(); // Bruno Costa
+  it('renders server members when serverId is provided', () => {
+    render(
+      <MembersSidebar
+        users={users}
+        currentUser={currentUser}
+        onlineUserIds={['user-1']}
+        isOpen={true}
+        serverId="srv-1"
+        serverMembers={serverMembers}
+      />
+    );
+
+    expect(screen.getByText('Eu Próprio')).toBeInTheDocument();
     expect(screen.getByText('Ana Silva')).toBeInTheDocument();
     expect(screen.getByText('Bruno Costa')).toBeInTheDocument();
     expect(screen.getByText('(você)')).toBeInTheDocument();
   });
 
-  it('calls onSelectUser when a member is clicked in direct message mode', () => {
+  it('calls onSelectUser when a member is clicked by regular member', () => {
     const onSelectUser = vi.fn();
     render(
       <MembersSidebar
@@ -95,6 +108,9 @@ describe('MembersSidebar', () => {
         currentUser={currentUser}
         onlineUserIds={['user-1']}
         isOpen={true}
+        serverId="srv-1"
+        serverMembers={serverMembers}
+        currentUserRole="MEMBER"
         onSelectUser={onSelectUser}
       />
     );

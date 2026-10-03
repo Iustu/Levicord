@@ -20,6 +20,8 @@ import {
   toggleServerMemberInvites,
   setMemberCanInvite,
   userHasAccessToPlatform,
+  deleteServer,
+  getAllServersAdmin,
 } from '../services/server.service';
 import type { ServerMemberRole, ChannelType } from '@prisma/client';
 
@@ -437,5 +439,32 @@ export default async function serverRoutes(fastify: FastifyInstance) {
     } catch (err: any) {
       return reply.code(403).send({ message: err.message || 'Sem permissão' });
     }
+  });
+
+  /**
+   * Delete server (Creator / Owner or SuperAdmin)
+   */
+  fastify.delete<{ Params: { serverId: string } }>('/:serverId', async (request, reply) => {
+    try {
+      const userId = getAuthUserId(request);
+      const { serverId } = request.params;
+      const result = await deleteServer(serverId, userId);
+      return reply.code(200).send(result);
+    } catch (err: any) {
+      return reply.code(403).send({ message: err.message || 'Sem permissão para excluir este servidor.' });
+    }
+  });
+
+  /**
+   * List all servers (SuperAdmins only)
+   */
+  fastify.get('/admin/all', async (request, reply) => {
+    const userId = getAuthUserId(request);
+    const superAdmin = await isSuperAdmin(userId);
+    if (!superAdmin) {
+      return reply.code(403).send({ message: 'Apenas SuperAdmins podem visualizar todos os servidores.' });
+    }
+    const servers = await getAllServersAdmin();
+    return reply.code(200).send(servers);
   });
 }

@@ -53,16 +53,59 @@ export function useSocketListeners(socket: Socket | null, actions?: SocketListen
       useChatStore.getState().markMessageDeleted(data.messageId);
     };
 
+    const handleDmRequestUpdate = (request: any) => {
+      const myId = getUserId();
+      if (!myId || !request) return;
+      const isSender = request.senderId === myId;
+      const otherUser = isSender ? request.receiver : request.sender;
+      if (!otherUser) return;
+      useChatStore.getState().updateDmContact({
+        id: otherUser.id,
+        displayName: otherUser.displayName,
+        avatarUrl: otherUser.avatarUrl,
+        requestId: request.id,
+        request: {
+          id: request.id,
+          senderId: request.senderId,
+          receiverId: request.receiverId,
+          status: request.status,
+          createdAt: typeof request.createdAt === 'string' ? request.createdAt : new Date().toISOString(),
+        },
+        isSender,
+        isReceiver: !isSender,
+        status: request.status,
+      });
+    };
+
+    const handleDmRequestRejected = (data: { id: string; senderId?: string; receiverId?: string }) => {
+      const rawContacts = useChatStore.getState().dmContacts;
+      const contacts = Array.isArray(rawContacts) ? rawContacts : [];
+      const contact = contacts.find(
+        (c) => c.request?.id === data.id || c.requestId === data.id || c.id === data.senderId || c.id === data.receiverId
+      );
+      if (contact) {
+        useChatStore.getState().removeDmContact(contact.id);
+      }
+    };
+
     socket.on('new_message', handleNewMessage);
     socket.on('new_dm', handleNewDm);
     socket.on('user_status', handleUserStatus);
     socket.on('message_deleted', handleMessageDeleted);
+    socket.on('dm_request_received', handleDmRequestUpdate);
+    socket.on('dm_request_sent', handleDmRequestUpdate);
+    socket.on('dm_request_accepted', handleDmRequestUpdate);
+    socket.on('dm_request_rejected', handleDmRequestRejected);
 
     return () => {
       socket.off('new_message', handleNewMessage);
       socket.off('new_dm', handleNewDm);
       socket.off('user_status', handleUserStatus);
       socket.off('message_deleted', handleMessageDeleted);
+      socket.off('dm_request_received', handleDmRequestUpdate);
+      socket.off('dm_request_sent', handleDmRequestUpdate);
+      socket.off('dm_request_accepted', handleDmRequestUpdate);
+      socket.off('dm_request_rejected', handleDmRequestRejected);
     };
   }, [socket, addMessage, addDm, getUserId, setUserStatus]);
 }

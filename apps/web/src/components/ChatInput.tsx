@@ -52,6 +52,7 @@ export interface UploadedAttachment {
   fileName: string;
   fileSize: number;
   mimeType: string;
+  isOneTime?: boolean;
 }
 
 export function ChatInput({ placeholder, token, onSend, onTypingStart, onTypingStop, disabled = false }: ChatInputProps) {
@@ -65,6 +66,7 @@ export function ChatInput({ placeholder, token, onSend, onTypingStart, onTypingS
   const [emojiSearch, setEmojiSearch] = useState('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const oneTimeFileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const emojiPopoverRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -137,7 +139,7 @@ export function ChatInput({ placeholder, token, onSend, onTypingStart, onTypingS
     }
   };
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>, isOneTimeInitial = false) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -166,7 +168,10 @@ export function ChatInput({ placeholder, token, onSend, onTypingStart, onTypingS
 
       if (res.ok) {
         const attachment = (await res.json()) as UploadedAttachment;
-        setPendingAttachment(attachment);
+        setPendingAttachment({
+          ...attachment,
+          isOneTime: isOneTimeInitial,
+        });
         setUploadProgress(100);
       } else {
         const err = (await res.json().catch(() => ({}))) as { error?: string };
@@ -177,7 +182,12 @@ export function ChatInput({ placeholder, token, onSend, onTypingStart, onTypingS
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+      if (oneTimeFileInputRef.current) oneTimeFileInputRef.current.value = '';
     }
+  };
+
+  const handleOneTimeFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    handleFileSelect(e, true);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -207,15 +217,40 @@ export function ChatInput({ placeholder, token, onSend, onTypingStart, onTypingS
     ? EMOJI_CATEGORIES.flatMap((c) => c.emojis)
     : EMOJI_CATEGORIES[activeCategory].emojis;
 
+  const isImageAttachment = pendingAttachment && (
+    pendingAttachment.type?.toLowerCase() === 'image' ||
+    /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i.test(pendingAttachment.fileName || '') ||
+    Boolean(pendingAttachment.mimeType?.startsWith('image/'))
+  );
+
   return (
     <div className="chat-input-wrapper">
       {pendingAttachment && (
         <div className="pending-attachment">
-          <span>📎 {pendingAttachment.fileName}</span>
+          <div className="pending-attachment-meta">
+            <span className="pending-attachment-filename">📎 {pendingAttachment.fileName}</span>
+            {isImageAttachment && (
+              <button
+                type="button"
+                className={`onetime-toggle-badge-btn ${pendingAttachment.isOneTime ? 'active' : ''}`}
+                onClick={() =>
+                  setPendingAttachment((prev) =>
+                    prev ? { ...prev, isOneTime: !prev.isOneTime } : null
+                  )
+                }
+                title="Foto 1x: Enviar imagem com desfoque (blur) e botão Revelar"
+                aria-pressed={!!pendingAttachment.isOneTime}
+              >
+                <span className="onetime-circle-pill">1x</span>
+                <span>{pendingAttachment.isOneTime ? 'Foto 1x com blur (Ativado)' : 'Foto 1x com blur'}</span>
+              </button>
+            )}
+          </div>
           <button
             type="button"
             onClick={() => setPendingAttachment(null)}
             aria-label="Remover anexo"
+            className="pending-attachment-remove"
           >
             <X size={14} />
           </button>
@@ -241,9 +276,18 @@ export function ChatInput({ placeholder, token, onSend, onTypingStart, onTypingS
           type="file"
           accept="image/*,video/*,.pdf,.txt,.zip"
           style={{ display: 'none' }}
-          onChange={handleFileSelect}
+          onChange={(e) => handleFileSelect(e, false)}
           id="file-upload-input"
           aria-label="Selecionar arquivo para upload"
+        />
+        <input
+          ref={oneTimeFileInputRef}
+          type="file"
+          accept="image/*"
+          style={{ display: 'none' }}
+          onChange={handleOneTimeFileSelect}
+          id="onetime-file-upload-input"
+          aria-label="Selecionar foto 1x com blur"
         />
         <button
           type="button"
@@ -254,6 +298,24 @@ export function ChatInput({ placeholder, token, onSend, onTypingStart, onTypingS
           title="Anexar arquivo"
         >
           {isUploading ? <Loader2 size={20} className="spinner" /> : <Paperclip size={20} />}
+        </button>
+        <button
+          type="button"
+          className={`attach-btn onetime-quick-btn ${pendingAttachment?.isOneTime ? 'active' : ''}`}
+          onClick={() => {
+            if (pendingAttachment && isImageAttachment) {
+              setPendingAttachment((prev) =>
+                prev ? { ...prev, isOneTime: !prev.isOneTime } : null
+              );
+            } else {
+              oneTimeFileInputRef.current?.click();
+            }
+          }}
+          disabled={disabled || isUploading}
+          aria-label="Enviar foto 1x com blur"
+          title="Enviar foto 1x (com blur e botão Revelar)"
+        >
+          <span className="onetime-icon-circle">1x</span>
         </button>
 
         <textarea

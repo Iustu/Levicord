@@ -4,6 +4,7 @@ import { prisma as defaultPrisma } from '../prisma';
 import type { PrismaClient } from '@prisma/client';
 import { canAccessChannel as defaultCanAccessChannel } from '../services/channel.service';
 import { isAdmin as defaultIsAdmin, isSuperAdmin as defaultIsSuperAdmin } from '../services/auth.service';
+import { checkCanMessage } from '../services/dm.service';
 
 const channelIdSchema = z.string().cuid();
 
@@ -119,11 +120,26 @@ export function registerVoiceHandler(
         return;
       }
 
-      if (channel.serverId && deps.isSuperAdmin) {
-        const isSuper = await deps.isSuperAdmin(userId);
-        if (isSuper) {
-          log?.warn?.({ event: 'superadmin_voice_blocked', userId, channelId }, 'SuperAdmin attempted to join server voice channel');
-          socket.emit('error', { message: 'SuperAdmins não têm permissão para entrar em canais de voz de servidores.' });
+      if (channel.serverId) {
+        let isMember = false;
+        if (deps.prisma.serverMember?.findUnique) {
+          const member = await deps.prisma.serverMember.findUnique({
+            where: { serverId_userId: { serverId: channel.serverId, userId } },
+          });
+          if (member) isMember = true;
+        }
+
+        if (!isMember && deps.prisma.server?.findUnique) {
+          const server = await deps.prisma.server.findUnique({
+            where: { id: channel.serverId },
+            select: { ownerId: true },
+          });
+          if (server?.ownerId === userId) isMember = true;
+        }
+
+        if (!isMember) {
+          log?.warn?.({ event: 'voice_non_member_blocked', userId, channelId }, 'User attempted to join server voice channel without being a member');
+          socket.emit('error', { message: 'Você precisa ser membro deste servidor para entrar em canais de voz.' });
           return;
         }
       }
@@ -244,6 +260,14 @@ export function registerVoiceHandler(
   socket.on('dm_call_start', async (data: { targetUserId: string; isVideo?: boolean }) => {
     if (!data?.targetUserId || typeof data.targetUserId !== 'string' || data.targetUserId === userId) {
       return;
+    }
+
+    if ((deps.prisma as any).dmRequest?.findFirst) {
+      const canCall = await checkCanMessage(userId, data.targetUserId, deps.prisma);
+      if (!canCall) {
+        socket.emit('error', { message: 'Você só pode iniciar chamadas após a solicitação de conversa ser aceita.' });
+        return;
+      }
     }
 
     try {

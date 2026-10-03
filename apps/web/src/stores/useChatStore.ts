@@ -3,7 +3,7 @@ import { create } from 'zustand';
 // store module. Consumers should import directly from '@discord-clone/shared'.
 // Re-exporting creates a misleading coupling: the store appears to own types
 // it doesn't. (ESM Cap.5 — modules should have cohesive, minimal interfaces)
-import type { Channel, Message, User, DirectMessage, Server, ServerMember, ServerMemberRole } from '@discord-clone/shared';
+import type { Channel, Message, User, DirectMessage, Server, ServerMember, ServerMemberRole, DmContact } from '@discord-clone/shared';
 
 const DMS_LRU_LIMIT = 20;
 
@@ -60,12 +60,16 @@ interface ChatState {
   activeDmCall: ActiveDmCall | null;
   incomingCall: IncomingCall | null;
 
+  dmContacts: DmContact[];
   setViewMode: (mode: ViewMode) => void;
   setServers: (servers: Server[]) => void;
   setActiveServerId: (id: string | null) => void;
   setActiveServer: (server: ServerWithDetails | null) => void;
   setChannels: (channels: Channel[]) => void;
   setUsers: (users: User[]) => void;
+  setDmContacts: (contacts: DmContact[]) => void;
+  updateDmContact: (contact: DmContact) => void;
+  removeDmContact: (contactId: string) => void;
   setActiveChannelId: (id: string) => void;
   setActiveDmUserId: (id: string) => void;
   setCurrentUserId: (id: string) => void;
@@ -90,6 +94,7 @@ export const useChatStore = create<ChatState>((set) => ({
   activeServer: null,
   channels: [],
   users: [],
+  dmContacts: [],
   activeChannelId: null,
   activeDmUserId: null,
   currentUserId: null,
@@ -106,6 +111,29 @@ export const useChatStore = create<ChatState>((set) => ({
   setActiveServer: (server) => set({ activeServer: server }),
   setChannels: (channels) => set({ channels }),
   setUsers: (users) => set({ users }),
+  setDmContacts: (dmContacts) =>
+    set({
+      dmContacts: Array.isArray(dmContacts)
+        ? dmContacts
+        : Array.isArray((dmContacts as any)?.contacts)
+          ? (dmContacts as any).contacts
+          : [],
+    }),
+  updateDmContact: (contact) =>
+    set((state) => {
+      const contacts = Array.isArray(state.dmContacts) ? state.dmContacts : [];
+      const idx = contacts.findIndex((c) => c.id === contact.id);
+      if (idx >= 0) {
+        const next = [...contacts];
+        next[idx] = contact;
+        return { dmContacts: next };
+      }
+      return { dmContacts: [contact, ...contacts] };
+    }),
+  removeDmContact: (contactId) =>
+    set((state) => ({
+      dmContacts: (Array.isArray(state.dmContacts) ? state.dmContacts : []).filter((c) => c.id !== contactId),
+    })),
   setActiveChannelId: (id) => set({ activeChannelId: id }),
   setActiveDmUserId: (id) => set({ activeDmUserId: id }),
   setCurrentUserId: (id) => set({ currentUserId: id }),

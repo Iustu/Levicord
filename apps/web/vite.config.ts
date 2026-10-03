@@ -13,7 +13,6 @@ export default defineConfig({
     setupFiles: ['./vitest.setup.ts'],
     globals: true,
     pool: 'forks',
-    maxForks: 3,
-    minForks: 1,
+    maxWorkers: 3,
   }
 })

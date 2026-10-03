@@ -67,6 +67,12 @@ describe('Voice Handler (WebRTC signaling & access control)', () => {
       channel: {
         findUnique: vi.fn(),
       },
+      serverMember: {
+        findUnique: vi.fn(),
+      },
+      server: {
+        findUnique: vi.fn(),
+      },
     } as unknown as PrismaClient;
 
     mockCanAccessChannel = vi.fn();
@@ -118,7 +124,7 @@ describe('Voice Handler (WebRTC signaling & access control)', () => {
       expect(roomsJoined.size).toBe(0);
     });
 
-    it('should reject if user is a SuperAdmin attempting to join a server voice channel', async () => {
+    it('should reject if user is not a member of the server when joining a server voice channel', async () => {
       mockIsSuperAdmin.mockResolvedValue(true);
       (mockPrisma.channel.findUnique as any).mockResolvedValue({
         id: validVoiceChannelId,
@@ -126,13 +132,59 @@ describe('Voice Handler (WebRTC signaling & access control)', () => {
         isPrivate: false,
         serverId: 'srv-1',
       });
+      (mockPrisma.serverMember.findUnique as any).mockResolvedValue(null);
+      (mockPrisma.server.findUnique as any).mockResolvedValue({ ownerId: 'other-user' });
 
       await eventHandlers['join_voice'](validVoiceChannelId);
 
       expect(mockSocket.emit).toHaveBeenCalledWith('error', {
-        message: 'SuperAdmins não têm permissão para entrar em canais de voz de servidores.',
+        message: 'Você precisa ser membro deste servidor para entrar em canais de voz.',
       });
       expect(roomsJoined.size).toBe(0);
+    });
+
+    it('should allow SuperAdmin to join server voice channel if they are a server member', async () => {
+      mockIsSuperAdmin.mockResolvedValue(true);
+      mockIsAdmin.mockResolvedValue(true);
+      mockCanAccessChannel.mockResolvedValue(true);
+      (mockPrisma.channel.findUnique as any).mockResolvedValue({
+        id: validVoiceChannelId,
+        type: 'VOICE',
+        isPrivate: false,
+        serverId: 'srv-1',
+      });
+      (mockPrisma.serverMember.findUnique as any).mockResolvedValue({
+        id: 'sm-1',
+        serverId: 'srv-1',
+        userId,
+        role: 'MEMBER',
+      });
+
+      await eventHandlers['join_voice'](validVoiceChannelId);
+
+      expect(mockSocket.join).toHaveBeenCalledWith(`voice_${validVoiceChannelId}`);
+      expect(mockSocket.data.voiceChannelId).toBe(validVoiceChannelId);
+      expect(roomsJoined.has(`voice_${validVoiceChannelId}`)).toBe(true);
+    });
+
+    it('should allow SuperAdmin to join server voice channel if they are the server creator', async () => {
+      mockIsSuperAdmin.mockResolvedValue(true);
+      mockIsAdmin.mockResolvedValue(true);
+      mockCanAccessChannel.mockResolvedValue(true);
+      (mockPrisma.channel.findUnique as any).mockResolvedValue({
+        id: validVoiceChannelId,
+        type: 'VOICE',
+        isPrivate: false,
+        serverId: 'srv-1',
+      });
+      (mockPrisma.serverMember.findUnique as any).mockResolvedValue(null);
+      (mockPrisma.server.findUnique as any).mockResolvedValue({ ownerId: userId });
+
+      await eventHandlers['join_voice'](validVoiceChannelId);
+
+      expect(mockSocket.join).toHaveBeenCalledWith(`voice_${validVoiceChannelId}`);
+      expect(mockSocket.data.voiceChannelId).toBe(validVoiceChannelId);
+      expect(roomsJoined.has(`voice_${validVoiceChannelId}`)).toBe(true);
     });
 
     it('should reject if user does not have permission to access channel', async () => {
