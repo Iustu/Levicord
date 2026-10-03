@@ -28,15 +28,16 @@ export default async function dmRoutes(fastify: FastifyInstance) {
   );
 
   // Send a new DM request to a target user
-  fastify.post<{ Body: { receiverId: string } }>('/requests', async (request, reply) => {
+  fastify.post<{ Body: { receiverId?: string; targetUserId?: string } }>('/requests', async (request, reply) => {
     const userId = getAuthUserId(request);
-    const { receiverId } = request.body || {};
-    if (!receiverId || typeof receiverId !== 'string') {
+    const { receiverId, targetUserId } = request.body || {};
+    const targetId = receiverId || targetUserId;
+    if (!targetId || typeof targetId !== 'string') {
       return reply.code(400).send({ message: 'receiverId é obrigatório.' });
     }
 
     try {
-      const result = await sendDmRequest(userId, receiverId);
+      const result = await sendDmRequest(userId, targetId);
       const io = (fastify as any).io;
       if (io) {
         io.to(receiverId).emit('dm_request_received', result);

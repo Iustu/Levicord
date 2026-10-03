@@ -448,7 +448,7 @@ export default function MainApp() {
     try {
       const res = await apiFetch<any>('/api/dms/requests', token, {
         method: 'POST',
-        body: JSON.stringify({ targetUserId: activeDmUserId }),
+        body: JSON.stringify({ targetUserId: activeDmUserId, receiverId: activeDmUserId }),
       });
       if (socket) {
         socket.emit('send_dm_request', { targetUserId: activeDmUserId });
@@ -1044,7 +1044,18 @@ export default function MainApp() {
                     currentUser={currentUser}
                     onlineUserIds={onlineUserIds}
                     isOpen={isMembersOpen}
-                    onSelectUser={(userId) => {
+                    onSelectUser={(userId, memberUser) => {
+                      if (currentUser && userId === currentUser.id) return;
+                      if (memberUser && !safeUsers.some((u) => u.id === memberUser.id)) {
+                        setUsers([
+                          ...safeUsers,
+                          {
+                            id: memberUser.id,
+                            displayName: memberUser.displayName,
+                            avatarUrl: memberUser.avatarUrl ?? null,
+                          },
+                        ]);
+                      }
                       setActiveServerId(null);
                       setViewMode('dms');
                       setActiveDmUserId(userId);

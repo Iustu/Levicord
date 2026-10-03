@@ -71,5 +71,36 @@ export function useSession() {
     };
   }, [location.pathname, navigate, setCurrentUserId, setCurrentUser]);
 
+  // Proactive background session refresh (every 10 minutes and on window focus)
+  useEffect(() => {
+    if (!token) return;
+
+    const interval = setInterval(() => {
+      fetch(`${API_BASE}/api/auth/refresh`, {
+        method: 'POST',
+        credentials: 'include',
+      }).catch(() => {});
+    }, 10 * 60 * 1000);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetch(`${API_BASE}/api/auth/session`, { credentials: 'include' })
+          .then((res) => {
+            if (!res.ok) {
+              return fetch(`${API_BASE}/api/auth/refresh`, { method: 'POST', credentials: 'include' });
+            }
+          })
+          .catch(() => {});
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [token]);
+
   return { token, setToken, isLoading };
 }

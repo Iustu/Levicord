@@ -1,10 +1,19 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import type { RefObject } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Hash, Loader2, Copy, Check, Trash2, X } from 'lucide-react';
+import { Hash, Loader2, Copy, Check, Trash2, X, Smile } from 'lucide-react';
 import { API_BASE } from '../lib/api';
 import { Avatar } from './Avatar';
 import type { Message, DirectMessage, User } from '@discord-clone/shared';
+
+const QUICK_REACTIONS = ['👍', '❤️', '😂', '🔥', '🎉', '👀', '🚀', '😭'];
+
+const EXPANDED_REACTION_EMOJIS = [
+  '👍', '👎', '❤️', '🔥', '😂', '🎉', '✨', '🚀',
+  '👀', '😭', '👏', '🙌', '💯', '😍', '🤔', '😎',
+  '🥳', '🤩', '🫡', '🤝', '💪', '💡', '⭐', '🎯',
+  '💀', '💩', '🙏', '💖', '💥', '☕', '🍕', '🎮',
+];
 
 interface MessageListProps {
   messages: (Message | DirectMessage)[];
@@ -195,6 +204,26 @@ const MessageItem = React.memo(function MessageItem({
 
   const [copied, setCopied] = useState(false);
   const [reactions, setReactions] = useState<Record<string, number>>({});
+  const [showReactionPicker, setShowReactionPicker] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showReactionPicker) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setShowReactionPicker(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowReactionPicker(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showReactionPicker]);
 
   const renderedContent = useMemo(() => {
     if (!content) return null;
@@ -232,46 +261,54 @@ const MessageItem = React.memo(function MessageItem({
   };
 
   return (
-    <div className={`message-item ${isConsecutive ? 'consecutive' : ''} ${isDeleted ? 'is-deleted' : ''}`}>
+    <div className={`message-item ${isConsecutive ? 'consecutive' : ''} ${isDeleted ? 'is-deleted' : ''} ${showReactionPicker ? 'has-picker-open' : ''}`}>
       {/* Floating Action Toolbar on Hover */}
       {!isDeleted && (
         <div className="message-actions-toolbar" role="toolbar" aria-label="Ações da mensagem">
+          {QUICK_REACTIONS.map((emoji, index) => (
+            <button
+              key={emoji}
+              type="button"
+              className={`msg-action-btn ${index >= 4 ? 'quick-reaction-extra' : ''}`}
+              onClick={() => handleReaction(emoji)}
+              title={`Reagir com ${emoji}`}
+              aria-label={`Reagir com ${emoji}`}
+            >
+              {emoji}
+            </button>
+          ))}
           <button
             type="button"
-            className="msg-action-btn"
-            onClick={() => handleReaction('👍')}
-            title="Reagir com 👍"
-            aria-label="Reagir com 👍"
+            className={`msg-action-btn reaction-picker-toggle ${showReactionPicker ? 'active' : ''}`}
+            onClick={() => setShowReactionPicker((prev) => !prev)}
+            title="Mais reações"
+            aria-label="Mais reações"
           >
-            👍
+            <Smile size={15} />
           </button>
-          <button
-            type="button"
-            className="msg-action-btn"
-            onClick={() => handleReaction('❤️')}
-            title="Reagir com ❤️"
-            aria-label="Reagir com ❤️"
-          >
-            ❤️
-          </button>
-          <button
-            type="button"
-            className="msg-action-btn"
-            onClick={() => handleReaction('😂')}
-            title="Reagir com 😂"
-            aria-label="Reagir com 😂"
-          >
-            😂
-          </button>
-          <button
-            type="button"
-            className="msg-action-btn"
-            onClick={() => handleReaction('🎉')}
-            title="Reagir com 🎉"
-            aria-label="Reagir com 🎉"
-          >
-            🎉
-          </button>
+          {showReactionPicker && (
+            <div ref={pickerRef} className="message-reaction-picker-popover" role="dialog" aria-label="Seletor de reações">
+              <div className="reaction-picker-header">
+                <span>Reações Rápidas</span>
+              </div>
+              <div className="reaction-picker-grid">
+                {EXPANDED_REACTION_EMOJIS.map((emoji) => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    className="reaction-picker-item"
+                    onClick={() => {
+                      handleReaction(emoji);
+                      setShowReactionPicker(false);
+                    }}
+                    title={`Reagir com ${emoji}`}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {content && (
             <button
               type="button"
@@ -346,6 +383,15 @@ const MessageItem = React.memo(function MessageItem({
                 <span className="reaction-count">{count}</span>
               </button>
             ))}
+            <button
+              type="button"
+              className="reaction-badge add-reaction-badge"
+              onClick={() => setShowReactionPicker((prev) => !prev)}
+              title="Adicionar reação"
+              aria-label="Adicionar reação"
+            >
+              <Smile size={13} />
+            </button>
           </div>
         )}
       </div>

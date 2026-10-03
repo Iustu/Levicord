@@ -66,7 +66,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
             const { accessToken, refreshToken: newRt } = JSON.parse(rotatedData);
             reply.setCookie('accessToken', accessToken, {
               ...cookieOptions,
-              maxAge: 15 * 60,
+              maxAge: 2 * 60 * 60, // 2 hours
             });
             reply.setCookie('refreshToken', newRt, {
               ...cookieOptions,
@@ -93,7 +93,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
         await redis.set(blocklistKey, '1', 'EX', remainingTtl);
       }
 
-      const newAccessToken = fastify.jwt.sign({ sub: decoded.sub }, { expiresIn: '15m' });
+      const newAccessToken = fastify.jwt.sign({ sub: decoded.sub }, { expiresIn: '2h' });
       const newRefreshToken = fastify.jwt.sign({ sub: decoded.sub }, { expiresIn: '7d' });
 
       // Store in rotatedKey for 30s grace window so in-flight concurrent requests don't fail
@@ -108,7 +108,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
 
       reply.setCookie('accessToken', newAccessToken, {
         ...cookieOptions,
-        maxAge: 15 * 60,
+        maxAge: 2 * 60 * 60, // 2 hours
       });
       reply.setCookie('refreshToken', newRefreshToken, {
         ...cookieOptions,
@@ -240,7 +240,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
       const user = await processGoogleUser(userInfo);
       request.log.info({ event: 'auth_success', userId: user.id, provider: 'google', isNewUser }, 'User logged in successfully');
 
-      const accessToken = await reply.jwtSign({ sub: user.id }, { expiresIn: '15m' });
+      const accessToken = await reply.jwtSign({ sub: user.id }, { expiresIn: '2h' });
       const refreshToken = await reply.jwtSign({ sub: user.id }, { expiresIn: '7d' });
 
       const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -254,7 +254,7 @@ export default async function authRoutes(fastify: FastifyInstance) {
 
       reply.setCookie('accessToken', accessToken, {
         ...cookieOptions,
-        maxAge: 15 * 60, // 15 minutes
+        maxAge: 2 * 60 * 60, // 2 hours
       });
       reply.setCookie('refreshToken', refreshToken, {
         ...cookieOptions,

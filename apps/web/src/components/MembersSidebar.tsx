@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import type { User, ServerMember, ServerMemberRole } from '@discord-clone/shared';
 import { Avatar } from './Avatar';
-import { Shield, Crown, VolumeX, Volume2, UserMinus, Ban, MailX, MailCheck, MoreVertical, X } from 'lucide-react';
+import { Shield, Crown, VolumeX, Volume2, UserMinus, Ban, MailX, MailCheck, MoreVertical, X, MessageSquare } from 'lucide-react';
 import { apiFetch } from '../lib/api';
 import { ConfirmModal } from './ConfirmModal';
 import './MembersSidebar.css';
@@ -11,7 +11,7 @@ export interface MembersSidebarProps {
   currentUser: User | null;
   onlineUserIds: string[];
   isOpen: boolean;
-  onSelectUser?: (userId: string) => void;
+  onSelectUser?: (userId: string, user?: { id: string; displayName: string; avatarUrl?: string | null }) => void;
   serverId?: string | null;
   serverMembers?: Array<ServerMember & { user?: User }>;
   currentUserRole?: ServerMemberRole | null;
@@ -191,38 +191,51 @@ export const MembersSidebar: React.FC<MembersSidebarProps> = ({
 
         return (
           <div key={m.id} className="member-item-container" style={{ position: 'relative' }}>
-            <button
-              className={`member-item ${online ? 'is-online' : ''}`}
-              onClick={() => {
-                if (canModerateThisMember) {
-                  setSelectedMember(selectedMember?.id === m.id ? null : m);
-                  setActionError(null);
-                } else {
-                  onSelectUser?.(u.id);
-                }
-              }}
-              title={`${u.displayName} (${online ? 'Disponível' : 'Offline'})`}
-            >
-              <div className="member-avatar-wrapper">
-                <Avatar src={u.avatarUrl} name={u.displayName} size={32} />
-                <span className={`member-status-dot ${online ? 'online' : 'offline'}`} aria-hidden="true" />
-              </div>
-              <div className="member-info">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span className="member-name">{u.displayName}</span>
-                  {m.role === 'OWNER' && <span title="Dono do Servidor" style={{ display: 'inline-flex' }}><Crown size={14} color="#f0b232" /></span>}
-                  {m.role === 'ADMIN' && <span title="Administrador do Servidor" style={{ display: 'inline-flex' }}><Shield size={14} color="#5865f2" /></span>}
+            <div className="member-item-wrapper">
+              <button
+                type="button"
+                className={`member-item ${online ? 'is-online' : ''}`}
+                onClick={() => {
+                  if (!isSelf) {
+                    onSelectUser?.(u.id, u);
+                  }
+                }}
+                title={isSelf ? `${u.displayName} (você)` : `Conversar com ${u.displayName} (${online ? 'Disponível' : 'Offline'})`}
+              >
+                <div className="member-avatar-wrapper">
+                  <Avatar src={u.avatarUrl} name={u.displayName} size={32} />
+                  <span className={`member-status-dot ${online ? 'online' : 'offline'}`} aria-hidden="true" />
                 </div>
-                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '2px' }}>
-                  {isSelf && <span className="member-you-badge">(você)</span>}
-                  {isMuted && <span style={{ fontSize: '11px', color: '#ed4245', display: 'flex', alignItems: 'center', gap: '2px' }}><VolumeX size={11} /> Mutado</span>}
-                  {m.canInvite === false && <span style={{ fontSize: '11px', color: '#949ba4', display: 'flex', alignItems: 'center', gap: '2px' }}><MailX size={11} /> Sem convite</span>}
+                <div className="member-info">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span className="member-name">{u.displayName}</span>
+                    {m.role === 'OWNER' && <span title="Dono do Servidor" style={{ display: 'inline-flex' }}><Crown size={14} color="#f0b232" /></span>}
+                    {m.role === 'ADMIN' && <span title="Administrador do Servidor" style={{ display: 'inline-flex' }}><Shield size={14} color="#5865f2" /></span>}
+                  </div>
+                  <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '2px' }}>
+                    {isSelf && <span className="member-you-badge">(você)</span>}
+                    {isMuted && <span style={{ fontSize: '11px', color: '#ed4245', display: 'flex', alignItems: 'center', gap: '2px' }}><VolumeX size={11} /> Mutado</span>}
+                    {m.canInvite === false && <span style={{ fontSize: '11px', color: '#949ba4', display: 'flex', alignItems: 'center', gap: '2px' }}><MailX size={11} /> Sem convite</span>}
+                  </div>
                 </div>
-              </div>
+              </button>
+
               {canModerateThisMember && (
-                <MoreVertical size={16} color="#949ba4" style={{ marginLeft: 'auto', flexShrink: 0 }} />
+                <button
+                  type="button"
+                  className="member-moderate-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedMember(selectedMember?.id === m.id ? null : m);
+                    setActionError(null);
+                  }}
+                  title={`Moderar ${u.displayName}`}
+                  aria-label={`Moderar ${u.displayName}`}
+                >
+                  <MoreVertical size={16} />
+                </button>
               )}
-            </button>
+            </div>
 
             {/* Moderation Popover / Actions */}
             {selectedMember?.id === m.id && (
@@ -246,6 +259,17 @@ export const MembersSidebar: React.FC<MembersSidebarProps> = ({
                 )}
 
                 <div className="moderation-action-list">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedMember(null);
+                      onSelectUser?.(u.id, u);
+                    }}
+                    className="moderation-action-btn"
+                    style={{ backgroundColor: 'rgba(88, 101, 242, 0.15)', color: '#5865f2', fontWeight: 600 }}
+                  >
+                    <MessageSquare size={14} color="#5865f2" /> Conversar em Privado
+                  </button>
                   {isMuted ? (
                     <button
                       type="button"
